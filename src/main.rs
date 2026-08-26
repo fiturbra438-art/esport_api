@@ -16,6 +16,11 @@ async fn main() {
         .await
         .expect("❌ Gagal terhubung ke database! Pastikan Docker menyala.");
 
+    sqlx::migrate!()
+        .run(&pool)
+        .await
+        .expect("❌ Gagal menjalankan migrasi database!");
+
     println!("✅ Berhasil terhubung ke database TOURNAMEN_ESPORT!");
 
     let app = Router::new()
@@ -30,24 +35,12 @@ async fn main() {
         .route("/api/teams/members", delete(handlers::remove_team_member))
         .route("/api/teams/captain", put(handlers::transfer_captain))
         .route("/api/teams/:id", get(handlers::get_team_profile))
-        .route(
-            "/api/tournaments",
-            post(handlers::create_tournament).get(handlers::get_tournaments),
-        )
+        .route("/api/tournaments",post(handlers::create_tournament).get(handlers::get_tournaments),)
         .route("/api/tournaments/:id", delete(handlers::delete_tournament))
-        .route(
-            "/api/tournaments/register",
-            post(handlers::register_tournament),
-        )
-        .route(
-            "/api/tournaments/:id/matches",
-            get(handlers::get_tournament_matches),
-        )
+        .route("/api/tournaments/register",post(handlers::register_tournament),)
+        .route("/api/tournaments/:id/matches",get(handlers::get_tournament_matches),)
         .route("/api/matches", post(handlers::create_match))
-        .route(
-            "/api/matches/:id/schedule",
-            put(handlers::update_match_schedule),
-        )
+        .route("/api/matches/:id/schedule",put(handlers::update_match_schedule),)
         .with_state(pool);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:8080")

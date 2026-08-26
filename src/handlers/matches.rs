@@ -6,6 +6,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use time::PrimitiveDateTime;
 
 use super::response::{error_response, message};
 
@@ -22,7 +23,7 @@ pub async fn create_match(
     Json(payload): Json<CreateMatchDto>,
 ) -> impl IntoResponse {
     match sqlx::query!(
-        "INSERT INTO matches (tournament_id, team1_id, team2_id, round_number) VALUES ($1, $2, $3, $4)",
+        "INSERT INTO matches (tournament_id, team_a_id, team_b_id, round_number) VALUES ($1, $2, $3, $4)",
         payload.tournament_id,
         payload.team1_id,
         payload.team2_id,
@@ -50,7 +51,7 @@ pub async fn get_tournament_matches(
 ) -> impl IntoResponse {
     match sqlx::query_as!(
         MatchResponse,
-        "SELECT matches.id, matches.round_number, t1.name AS team1_name, t2.name AS team2_name FROM matches LEFT JOIN teams t1 ON matches.team1_id = t1.id LEFT JOIN teams t2 ON matches.team2_id = t2.id WHERE matches.tournament_id = $1 ORDER BY matches.round_number ASC, matches.id ASC",
+        "SELECT matches.id, matches.round_number, t1.name AS team1_name, t2.name AS team2_name FROM matches LEFT JOIN teams t1 ON matches.team_a_id = t1.id LEFT JOIN teams t2 ON matches.team_b_id = t2.id WHERE matches.tournament_id = $1 ORDER BY matches.round_number ASC, matches.id ASC",
         tournament_id
     )
     .fetch_all(&pool)
@@ -74,9 +75,24 @@ pub async fn update_match_schedule(
     Path(match_id): Path<i32>,
     Json(payload): Json<UpdateScheduleDto>,
 ) -> impl IntoResponse {
+    let schedule_time = match PrimitiveDateTime::parse(
+        &payload.schedule_time,
+        &time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second]"),
+    ) {
+        Ok(schedule_time) => schedule_time,
+        Err(error) => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "Gagal mengatur jadwal. Pastikan format waktu benar (YYYY-MM-DD HH:MM:SS). Detail: {error}"
+                ),
+            )
+        }
+    };
+
     match sqlx::query!(
         "UPDATE matches SET schedule_time = $1::TIMESTAMP WHERE id = $2",
-        payload.schedule_time,
+        schedule_time,
         match_id
     )
     .execute(&pool)
