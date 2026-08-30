@@ -10,12 +10,15 @@ use sqlx::PgPool;
 #[derive(Deserialize)]
 pub struct CreateUserDto {
     pub username: String,
+    pub password: String,
+    pub mmr_point: Option<i32>,
 }
 
 #[derive(Serialize)]
 pub struct UserResponse {
     pub id: i32,
     pub username: String,
+    pub password: Option<String>,
     pub mmr_point: Option<i32>,
 }
 
@@ -23,10 +26,18 @@ pub async fn register_user(
     State(pool): State<PgPool>,
     Json(payload): Json<CreateUserDto>,
 ) -> impl IntoResponse {
+    println!(
+        "📥 Ada pendaftar baru! Username: {}, Password: {}, MMR: {}",
+        payload.username,
+        payload.password,
+        payload.mmr_point.unwrap_or(0)
+    );
     let result = sqlx::query_as!(
         UserResponse,
-        "INSERT INTO users (username) VALUES ($1) RETURNING id, username, mmr_point",
-        payload.username
+        "INSERT INTO users (username, password, mmr_point) VALUES ($1, $2, $3) RETURNING id, username, password, mmr_point",
+        payload.username,
+        payload.password,
+        payload.mmr_point.unwrap_or(0)
     )
     .fetch_one(&pool)
     .await;

@@ -24,10 +24,7 @@ async fn main() {
     println!("✅ Berhasil terhubung ke database TOURNAMEN_ESPORT!");
 
     let app = Router::new()
-        .route(
-            "/",
-            get(|| async { "API Turnamen E-Sport Berjalan Mantap!" }),
-        )
+        .route("/", get(|| async { "API Turnamen E-Sport Berjalan Mantap!" }))
         .route("/api/users", axum::routing::post(handlers::register_user))
         .route("/api/users/:id", get(handlers::get_user_profile))
         .route("/api/teams", post(handlers::create_team))
