@@ -22,14 +22,15 @@ pub async fn create_match(
     State(pool): State<PgPool>,
     Json(payload): Json<CreateMatchDto>,
 ) -> impl IntoResponse {
-    match sqlx::query!(
-        "INSERT INTO matches (tournament_id, team_a_id, team_b_id, round_number) VALUES ($1, $2, $3, $4)",
+    match sqlx::query_as!(
+        MatchResponse,
+        "SELECT * FROM fn_create_match($1, $2, $3, $4)",
         payload.tournament_id,
         payload.team1_id,
         payload.team2_id,
         payload.round_number
     )
-    .execute(&pool)
+    .fetch_one(&pool)
     .await
     {
         Ok(_) => message(StatusCode::CREATED, "Jadwal pertandingan/breket berhasil ditambahkan!"),
@@ -90,15 +91,16 @@ pub async fn update_match_schedule(
         }
     };
 
-    match sqlx::query!(
-        "UPDATE matches SET schedule_time = $1::TIMESTAMP WHERE id = $2",
-        schedule_time,
-        match_id
+    let result = sqlx::query!(
+        "SELECT fn_update_match_schedule($1, $2) AS updated",
+        match_id,
+        schedule_time
     )
-    .execute(&pool)
-    .await
-    {
-        Ok(result) if result.rows_affected() > 0 => message(
+    .fetch_one(&pool)
+    .await;
+
+    match result {
+        Ok(row) if row.updated => message(
             StatusCode::OK,
             "Jadwal pertandingan berhasil ditentukan/diperbarui!",
         ),

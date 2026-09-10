@@ -19,7 +19,7 @@ pub struct CreateTeamDto {
 pub struct TeamResponse {
     pub id: i32,
     pub name: String,
-    pub captain_id: i32,
+    pub captain_id: Option<i32>,
 }
 
 pub async fn create_team(
@@ -38,7 +38,7 @@ pub async fn create_team(
 
     let team = match sqlx::query_as!(
         TeamResponse,
-        "INSERT INTO teams (name, captain_id) VALUES ($1, $2) RETURNING id, name, captain_id",
+        "SELECT * FROM fn_create_team_with_captain($1, $2)",
         payload.name,
         payload.captain_id
     )
@@ -53,20 +53,6 @@ pub async fn create_team(
             );
         }
     };
-
-    if let Err(error) = sqlx::query!(
-        "INSERT INTO team_members (team_id, user_id, status) VALUES ($1, $2, 'active')",
-        team.id,
-        team.captain_id
-    )
-    .execute(&mut *transaction)
-    .await
-    {
-        return error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Gagal memasukkan kapten ke roster: {error}"),
-        );
-    }
 
     if let Err(error) = transaction.commit().await {
         return error_response(
@@ -95,17 +81,22 @@ pub async fn join_team(
     State(pool): State<PgPool>,
     Json(payload): Json<JoinTeamDto>,
 ) -> impl IntoResponse {
-    match sqlx::query!(
-        "INSERT INTO team_members (team_id, user_id, status) VALUES ($1, $2, 'active')",
+    let result = sqlx::query!(
+        "SELECT fn_add_team_member($1, $2) AS ok",
         payload.team_id,
         payload.user_id
     )
-    .execute(&pool)
-    .await
-    {
-        Ok(_) => message(
+    .fetch_one(&pool)
+    .await;
+
+    match result {
+        Ok(row) if row.ok => message(
             StatusCode::CREATED,
             "Player berhasil bergabung ke dalam tim!",
+        ),
+        Ok(_) => error_response(
+            StatusCode::BAD_REQUEST,
+            "Player sudah ada di tim ini atau gagal menambahkan anggota.",
         ),
         Err(error) => error_response(
             StatusCode::BAD_REQUEST,
@@ -124,7 +115,7 @@ pub struct TeamMemberInfo {
 pub struct TeamProfileResponse {
     pub id: i32,
     pub name: String,
-    pub captain_id: i32,
+    pub captain_id: Option<i32>,
     pub members: Vec<TeamMemberInfo>,
 }
 
@@ -181,17 +172,19 @@ pub async fn remove_team_member(
     State(pool): State<PgPool>,
     Json(payload): Json<RemoveMemberDto>,
 ) -> impl IntoResponse {
-    match sqlx::query!(
-        "DELETE FROM team_members WHERE team_id = $1 AND user_id = $2",
+    let result = sqlx::query!(
+        "SELECT fn_remove_team_member($1, $2) AS removed",
         payload.team_id,
         payload.user_id
     )
-    .execute(&pool)
-    .await
-    {
-        Ok(result) if result.rows_affected() > 0 => {
-            message(StatusCode::OK, "Player berhasil keluar/dihapus dari tim!")
-        }
+    .fetch_one(&pool)
+    .await;
+
+    match result {
+        Ok(row) if row.removed => message(
+            StatusCode::OK,
+            "Player berhasil keluar/dihapus dari tim!",
+        ),
         Ok(_) => error_response(
             StatusCode::NOT_FOUND,
             "Player tidak ditemukan di dalam tim tersebut.",
@@ -213,19 +206,23 @@ pub async fn transfer_captain(
     State(pool): State<PgPool>,
     Json(payload): Json<TransferCaptainDto>,
 ) -> impl IntoResponse {
-    match sqlx::query!(
-        "UPDATE teams SET captain_id = $1 WHERE id = $2",
-        payload.new_captain_id,
-        payload.team_id
+    let result = sqlx::query!(
+        "SELECT fn_transfer_captain($1, $2) AS updated",
+        payload.team_id,
+        payload.new_captain_id
     )
-    .execute(&pool)
-    .await
-    {
-        Ok(result) if result.rows_affected() > 0 => message(
+    .fetch_one(&pool)
+    .await;
+
+    match result {
+        Ok(row) if row.updated => message(
             StatusCode::OK,
             "Jabatan ketua tim berhasil dipindahkan ke player baru!",
         ),
-        Ok(_) => error_response(StatusCode::NOT_FOUND, "Tim tidak ditemukan."),
+        Ok(_) => error_response(
+            StatusCode::NOT_FOUND,
+            "Tim tidak ditemukan atau player bukan anggota tim.",
+        ),
         Err(error) => error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Gagal memindahkan ketua tim: {error}"),

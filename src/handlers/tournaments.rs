@@ -27,7 +27,7 @@ pub async fn create_tournament(
 ) -> impl IntoResponse {
     match sqlx::query_as!(
         TournamentResponse,
-        "INSERT INTO tournaments (name, status) VALUES ($1, 'open') RETURNING id, name, status",
+        "SELECT * FROM fn_create_tournament($1)",
         payload.name
     )
     .fetch_one(&pool)
@@ -65,7 +65,7 @@ pub async fn register_tournament(
     Json(payload): Json<RegisterTournamentDto>,
 ) -> impl IntoResponse {
     match sqlx::query!(
-        "INSERT INTO tournament_registrations (tournament_id, team_id) VALUES ($1, $2)",
+        "CALL pr_register_team_to_tournament($1, $2)",
         payload.tournament_id,
         payload.team_id
     )

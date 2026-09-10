@@ -8,7 +8,7 @@ mod handlers;
 
 #[tokio::main]
 async fn main() {
-    let database_url: &str = "postgres://admin:admin1206@localhost:5432/TOURNAMEN_ESPORT";
+    let database_url: &str = "postgres://postgres:fitur1206@localhost:5432/TOURNAMEN_ESPORT";
 
     let pool: sqlx::Pool<sqlx::Postgres> = PgPoolOptions::new()
         .max_connections(5)
@@ -24,7 +24,7 @@ async fn main() {
     println!("✅ Berhasil terhubung ke database TOURNAMEN_ESPORT!");
 
     let app = Router::new()
-        .route("/", get(|| async { "API Turnamen E-Sport Berjalan Mantap!" }))
+        .route("/", get(|| async { "API Turnamen E-Sport Berjalan cukkk" }))
         .route("/api/users", axum::routing::post(handlers::register_user))
         .route("/api/users/:id", get(handlers::get_user_profile))
         .route("/api/teams", post(handlers::create_team))
