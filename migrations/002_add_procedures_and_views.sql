@@ -1,6 +1,4 @@
--- =====================================================
--- PROCEDURE: register tim ke turnamen
--- =====================================================
+-- Procedures used by the API write endpoints.
 CREATE OR REPLACE PROCEDURE pr_register_team_to_tournament(p_tournament_id INTEGER, p_team_id INTEGER)
 LANGUAGE plpgsql
 AS $$
@@ -10,9 +8,6 @@ BEGIN
 END;
 $$;
 
--- =====================================================
--- PROCEDURE: membuat tim dan mendaftarkan kapten
--- =====================================================
 CREATE OR REPLACE PROCEDURE pr_create_team(p_name TEXT, p_captain_id INTEGER)
 LANGUAGE plpgsql
 AS $$
@@ -29,16 +24,12 @@ BEGIN
 END;
 $$;
 
--- =====================================================
--- PROCEDURE: menambahkan anggota tim
--- =====================================================
 CREATE OR REPLACE PROCEDURE pr_add_team_member(p_team_id INTEGER, p_user_id INTEGER)
 LANGUAGE plpgsql
 AS $$
 BEGIN
     IF EXISTS (
-        SELECT 1
-        FROM team_members
+        SELECT 1 FROM team_members
         WHERE team_id = p_team_id AND user_id = p_user_id
     ) THEN
         RAISE EXCEPTION 'User % sudah menjadi anggota team %', p_user_id, p_team_id;
@@ -49,9 +40,6 @@ BEGIN
 END;
 $$;
 
--- =====================================================
--- PROCEDURE: menghapus anggota tim
--- =====================================================
 CREATE OR REPLACE PROCEDURE pr_remove_team_member(p_team_id INTEGER, p_user_id INTEGER)
 LANGUAGE plpgsql
 AS $$
@@ -65,16 +53,12 @@ BEGIN
 END;
 $$;
 
--- =====================================================
--- PROCEDURE: memindahkan kapten tim
--- =====================================================
 CREATE OR REPLACE PROCEDURE pr_transfer_captain(p_team_id INTEGER, p_new_captain_id INTEGER)
 LANGUAGE plpgsql
 AS $$
 BEGIN
     IF NOT EXISTS (
-        SELECT 1
-        FROM team_members
+        SELECT 1 FROM team_members
         WHERE team_id = p_team_id AND user_id = p_new_captain_id
     ) THEN
         RAISE EXCEPTION 'User % belum menjadi anggota team %', p_new_captain_id, p_team_id;
@@ -90,9 +74,6 @@ BEGIN
 END;
 $$;
 
--- =====================================================
--- PROCEDURE: membuat turnamen
--- =====================================================
 CREATE OR REPLACE PROCEDURE pr_create_tournament(p_name TEXT)
 LANGUAGE plpgsql
 AS $$
@@ -102,9 +83,6 @@ BEGIN
 END;
 $$;
 
--- =====================================================
--- PROCEDURE: membuat match
--- =====================================================
 CREATE OR REPLACE PROCEDURE pr_create_match(
     p_tournament_id INTEGER,
     p_team_a_id INTEGER,
@@ -119,9 +97,6 @@ BEGIN
 END;
 $$;
 
--- =====================================================
--- PROCEDURE: mengatur jadwal match
--- =====================================================
 CREATE OR REPLACE PROCEDURE pr_update_match_schedule(
     p_match_id INTEGER,
     p_schedule_time TIMESTAMP
@@ -139,9 +114,6 @@ BEGIN
 END;
 $$;
 
--- =====================================================
--- PROCEDURE: menghapus turnamen
--- =====================================================
 CREATE OR REPLACE PROCEDURE pr_delete_tournament(p_tournament_id INTEGER)
 LANGUAGE plpgsql
 AS $$
@@ -154,3 +126,36 @@ BEGIN
     END IF;
 END;
 $$;
+
+-- Views used by the API read endpoints.
+CREATE OR REPLACE VIEW vw_tournaments AS
+SELECT id, name, status, total_slots, available_slots, created_at
+FROM tournaments;
+
+CREATE OR REPLACE VIEW vw_team_members AS
+SELECT
+    teams.id AS team_id,
+    teams.name AS team_name,
+    teams.captain_id,
+    users.id AS user_id,
+    users.username,
+    team_members.status,
+    team_members.joined_at
+FROM teams
+LEFT JOIN team_members ON team_members.team_id = teams.id
+LEFT JOIN users ON users.id = team_members.user_id;
+
+CREATE OR REPLACE VIEW vw_match_schedule AS
+SELECT
+    matches.id,
+    matches.tournament_id,
+    matches.round_number,
+    matches.schedule_time,
+    matches.status,
+    t1.name AS team1_name,
+    t2.name AS team2_name,
+    winner.name AS winner_name
+FROM matches
+LEFT JOIN teams t1 ON t1.id = matches.team_a_id
+LEFT JOIN teams t2 ON t2.id = matches.team_b_id
+LEFT JOIN teams winner ON winner.id = matches.winner_id;

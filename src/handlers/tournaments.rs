@@ -25,24 +25,53 @@ pub async fn create_tournament(
     State(pool): State<PgPool>,
     Json(payload): Json<CreateTournamentDto>,
 ) -> impl IntoResponse {
-    match sqlx::query_as!(
+    let mut transaction = match pool.begin().await {
+        Ok(transaction) => transaction,
+        Err(error) => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Gagal memulai transaksi: {error}"),
+            );
+        }
+    };
+
+    if let Err(error) = sqlx::query!("CALL pr_create_tournament($1)", payload.name)
+        .execute(&mut *transaction)
+        .await
+    {
+        return error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Gagal membuat turnamen: {error}"),
+        );
+    }
+
+    let tournament = match sqlx::query_as!(
         TournamentResponse,
-        "SELECT * FROM fn_create_tournament($1)",
+        "SELECT id AS \"id!\", name AS \"name!\", status FROM vw_tournaments WHERE name = $1 ORDER BY id DESC LIMIT 1",
         payload.name
     )
-    .fetch_one(&pool)
+    .fetch_one(&mut *transaction)
     .await
     {
-        Ok(tournament) => (
-            StatusCode::CREATED,
-            Json(serde_json::json!({"message": "Turnamen berhasil dibuat dan siap menerima pendaftaran!", "data": tournament})),
-        ).into_response(),
-        Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, format!("Gagal membuat turnamen: {error}")),
+        Ok(tournament) => tournament,
+        Err(error) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, format!("Turnamen dibuat tetapi gagal mengambil datanya: {error}")),
+    };
+
+    if let Err(error) = transaction.commit().await {
+        return error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Gagal commit transaksi: {error}"),
+        );
     }
+
+    (
+        StatusCode::CREATED,
+        Json(serde_json::json!({"message": "Turnamen berhasil dibuat dan siap menerima pendaftaran!", "data": tournament})),
+    ).into_response()
 }
 
 pub async fn get_tournaments(State(pool): State<PgPool>) -> impl IntoResponse {
-    match sqlx::query_as!(TournamentResponse, "SELECT id, name, status FROM tournaments")
+    match sqlx::query_as!(TournamentResponse, "SELECT id AS \"id!\", name AS \"name!\", status FROM vw_tournaments")
         .fetch_all(&pool)
         .await
     {
@@ -89,17 +118,16 @@ pub async fn delete_tournament(
     State(pool): State<PgPool>,
     Path(tournament_id): Path<i32>,
 ) -> impl IntoResponse {
-    match sqlx::query!("DELETE FROM tournaments WHERE id = $1", tournament_id)
+    match sqlx::query!("CALL pr_delete_tournament($1)", tournament_id)
         .execute(&pool)
         .await
     {
-        Ok(result) if result.rows_affected() > 0 => message(
+        Ok(_) => message(
             StatusCode::OK,
             "Turnamen beserta seluruh data pendaftarannya berhasil dihapus!",
         ),
-        Ok(_) => error_response(StatusCode::NOT_FOUND, "Turnamen tidak ditemukan."),
         Err(error) => error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
+            StatusCode::NOT_FOUND,
             format!("Gagal menghapus turnamen: {error}"),
         ),
     }

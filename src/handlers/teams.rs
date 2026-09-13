@@ -36,16 +36,31 @@ pub async fn create_team(
         }
     };
 
-    let team = match sqlx::query_as!(
-        TeamResponse,
-        "SELECT * FROM fn_create_team_with_captain($1, $2)",
+    let team = match sqlx::query!(
+        "CALL pr_create_team($1, $2)",
         payload.name,
         payload.captain_id
     )
-    .fetch_one(&mut *transaction)
+    .execute(&mut *transaction)
     .await
     {
-        Ok(team) => team,
+        Ok(_) => match sqlx::query_as!(
+            TeamResponse,
+            "SELECT id AS \"id!\", name AS \"name!\", captain_id FROM teams WHERE name = $1 AND captain_id = $2 ORDER BY id DESC LIMIT 1",
+            payload.name,
+            payload.captain_id
+        )
+        .fetch_one(&mut *transaction)
+        .await
+        {
+            Ok(team) => team,
+            Err(error) => {
+                return error_response(
+                    StatusCode::BAD_REQUEST,
+                    format!("Tim berhasil dibuat tetapi gagal mengambil datanya: {error}"),
+                );
+            }
+        },
         Err(error) => {
             return error_response(
                 StatusCode::BAD_REQUEST,
@@ -82,21 +97,17 @@ pub async fn join_team(
     Json(payload): Json<JoinTeamDto>,
 ) -> impl IntoResponse {
     let result = sqlx::query!(
-        "SELECT fn_add_team_member($1, $2) AS ok",
+        "CALL pr_add_team_member($1, $2)",
         payload.team_id,
         payload.user_id
     )
-    .fetch_one(&pool)
+    .execute(&pool)
     .await;
 
     match result {
-        Ok(row) if row.ok => message(
+        Ok(_) => message(
             StatusCode::CREATED,
             "Player berhasil bergabung ke dalam tim!",
-        ),
-        Ok(_) => error_response(
-            StatusCode::BAD_REQUEST,
-            "Player sudah ada di tim ini atau gagal menambahkan anggota.",
         ),
         Err(error) => error_response(
             StatusCode::BAD_REQUEST,
@@ -124,7 +135,7 @@ pub async fn get_team_profile(
     Path(team_id): Path<i32>,
 ) -> impl IntoResponse {
     let team = match sqlx::query!(
-        "SELECT id, name, captain_id FROM teams WHERE id = $1",
+        "SELECT team_id AS \"id!\", team_name AS \"name!\", captain_id FROM vw_team_members WHERE team_id = $1 LIMIT 1",
         team_id
     )
     .fetch_optional(&pool)
@@ -142,7 +153,7 @@ pub async fn get_team_profile(
 
     let members = match sqlx::query_as!(
         TeamMemberInfo,
-        "SELECT users.username, team_members.status FROM team_members JOIN users ON team_members.user_id = users.id WHERE team_members.team_id = $1",
+        "SELECT username AS \"username!\", status FROM vw_team_members WHERE team_id = $1 AND user_id IS NOT NULL",
         team_id
     )
     .fetch_all(&pool)
@@ -173,24 +184,17 @@ pub async fn remove_team_member(
     Json(payload): Json<RemoveMemberDto>,
 ) -> impl IntoResponse {
     let result = sqlx::query!(
-        "SELECT fn_remove_team_member($1, $2) AS removed",
+        "CALL pr_remove_team_member($1, $2)",
         payload.team_id,
         payload.user_id
     )
-    .fetch_one(&pool)
+    .execute(&pool)
     .await;
 
     match result {
-        Ok(row) if row.removed => message(
-            StatusCode::OK,
-            "Player berhasil keluar/dihapus dari tim!",
-        ),
-        Ok(_) => error_response(
-            StatusCode::NOT_FOUND,
-            "Player tidak ditemukan di dalam tim tersebut.",
-        ),
+        Ok(_) => message(StatusCode::OK, "Player berhasil keluar/dihapus dari tim!"),
         Err(error) => error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
+            StatusCode::NOT_FOUND,
             format!("Gagal memproses request: {error}"),
         ),
     }
@@ -207,24 +211,20 @@ pub async fn transfer_captain(
     Json(payload): Json<TransferCaptainDto>,
 ) -> impl IntoResponse {
     let result = sqlx::query!(
-        "SELECT fn_transfer_captain($1, $2) AS updated",
+        "CALL pr_transfer_captain($1, $2)",
         payload.team_id,
         payload.new_captain_id
     )
-    .fetch_one(&pool)
+    .execute(&pool)
     .await;
 
     match result {
-        Ok(row) if row.updated => message(
+        Ok(_) => message(
             StatusCode::OK,
             "Jabatan ketua tim berhasil dipindahkan ke player baru!",
         ),
-        Ok(_) => error_response(
-            StatusCode::NOT_FOUND,
-            "Tim tidak ditemukan atau player bukan anggota tim.",
-        ),
         Err(error) => error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
+            StatusCode::NOT_FOUND,
             format!("Gagal memindahkan ketua tim: {error}"),
         ),
     }
