@@ -1,8 +1,8 @@
 -- =====================================================
 -- FUNCTION: membuat tim sekaligus mendaftarkan kapten
 -- =====================================================
-CREATE OR REPLACE FUNCTION fn_create_team_with_captain(p_name TEXT, p_captain_id INTEGER)
-RETURNS TABLE (id INTEGER, name TEXT, captain_id INTEGER)
+CREATE OR REPLACE FUNCTION fn_create_team(p_name TEXT, p_captain_id INTEGER)
+RETURNS INTEGER
 LANGUAGE plpgsql
 AS $$
 DECLARE
@@ -16,10 +16,7 @@ BEGIN
     VALUES (v_team_id, p_captain_id, 'active')
     ON CONFLICT DO NOTHING;
 
-    RETURN QUERY
-    SELECT t.id, t.name, t.captain_id
-    FROM teams t
-    WHERE t.id = v_team_id;
+    RETURN v_team_id;
 END;
 $$;
 
@@ -97,14 +94,12 @@ $$;
 -- FUNCTION: buat turnamen
 -- =====================================================
 CREATE OR REPLACE FUNCTION fn_create_tournament(p_name TEXT)
-RETURNS TABLE (id INTEGER, name TEXT, status TEXT)
+RETURNS VOID
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    RETURN QUERY
     INSERT INTO tournaments (name, total_slots, available_slots, status)
-    VALUES (p_name, 0, 0, 'open')
-    RETURNING tournaments.id, tournaments.name, tournaments.status;
+    VALUES (p_name, 0, 0, 'open');
 END;
 $$;
 
@@ -117,14 +112,12 @@ CREATE OR REPLACE FUNCTION fn_create_match(
     p_team_b_id INTEGER,
     p_round_number INTEGER
 )
-RETURNS TABLE (id INTEGER, tournament_id INTEGER, team_a_id INTEGER, team_b_id INTEGER, round_number INTEGER)
+RETURNS VOID
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    RETURN QUERY
     INSERT INTO matches (tournament_id, team_a_id, team_b_id, round_number)
-    VALUES (p_tournament_id, p_team_a_id, p_team_b_id, p_round_number)
-    RETURNING matches.id, matches.tournament_id, matches.team_a_id, matches.team_b_id, matches.round_number;
+    VALUES (p_tournament_id, p_team_a_id, p_team_b_id, p_round_number);
 END;
 $$;
 

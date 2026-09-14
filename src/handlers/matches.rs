@@ -33,13 +33,13 @@ pub async fn create_match(
     };
 
     if let Err(error) = sqlx::query!(
-        "CALL pr_create_match($1, $2, $3, $4)",
+        "SELECT fn_create_match($1, $2, $3, $4)",
         payload.tournament_id,
         payload.team1_id,
         payload.team2_id,
         payload.round_number
     )
-    .execute(&mut *transaction)
+    .fetch_one(&mut *transaction)
     .await
     {
         return error_response(

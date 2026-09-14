@@ -37,11 +37,11 @@ pub async fn create_team(
     };
 
     let team = match sqlx::query!(
-        "CALL pr_create_team($1, $2)",
+        "SELECT fn_create_team($1, $2)",
         payload.name,
         payload.captain_id
     )
-    .execute(&mut *transaction)
+    .fetch_one(&mut *transaction)
     .await
     {
         Ok(_) => match sqlx::query_as!(
@@ -54,12 +54,7 @@ pub async fn create_team(
         .await
         {
             Ok(team) => team,
-            Err(error) => {
-                return error_response(
-                    StatusCode::BAD_REQUEST,
-                    format!("Tim berhasil dibuat tetapi gagal mengambil datanya: {error}"),
-                );
-            }
+            Err(error) => return error_response(StatusCode::BAD_REQUEST, format!("Tim dibuat tetapi gagal mengambil data: {error}")),
         },
         Err(error) => {
             return error_response(

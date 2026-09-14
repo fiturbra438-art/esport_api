@@ -35,17 +35,14 @@ pub async fn create_tournament(
         }
     };
 
-    if let Err(error) = sqlx::query!("CALL pr_create_tournament($1)", payload.name)
-        .execute(&mut *transaction)
-        .await
+    let tournament = match sqlx::query!(
+        "SELECT fn_create_tournament($1)",
+        payload.name
+    )
+    .fetch_one(&mut *transaction)
+    .await
     {
-        return error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Gagal membuat turnamen: {error}"),
-        );
-    }
-
-    let tournament = match sqlx::query_as!(
+        Ok(_) => match sqlx::query_as!(
         TournamentResponse,
         "SELECT id AS \"id!\", name AS \"name!\", status FROM vw_tournaments WHERE name = $1 ORDER BY id DESC LIMIT 1",
         payload.name
@@ -55,6 +52,8 @@ pub async fn create_tournament(
     {
         Ok(tournament) => tournament,
         Err(error) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, format!("Turnamen dibuat tetapi gagal mengambil datanya: {error}")),
+    },
+        Err(error) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, format!("Gagal membuat turnamen: {error}")),
     };
 
     if let Err(error) = transaction.commit().await {

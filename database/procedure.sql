@@ -8,14 +8,6 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE PROCEDURE pr_create_team(p_name TEXT, p_captain_id INTEGER)
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    PERFORM fn_create_team_with_captain(p_name, p_captain_id);
-END;
-$$;
-
 CREATE OR REPLACE PROCEDURE pr_add_team_member(p_team_id INTEGER, p_user_id INTEGER)
 LANGUAGE plpgsql
 AS $$
@@ -44,34 +36,6 @@ BEGIN
     IF NOT fn_transfer_captain(p_team_id, p_new_captain_id) THEN
         RAISE EXCEPTION 'User % belum menjadi anggota team %', p_new_captain_id, p_team_id;
     END IF;
-END;
-$$;
-
--- PROCEDURE: membuat turnamen
-CREATE OR REPLACE PROCEDURE pr_create_tournament(p_name TEXT)
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    PERFORM fn_create_tournament(p_name);
-END;
-$$;
-
--- PROCEDURE: membuat match
-CREATE OR REPLACE PROCEDURE pr_create_match(
-    p_tournament_id INTEGER,
-    p_team_a_id INTEGER,
-    p_team_b_id INTEGER,
-    p_round_number INTEGER
-)
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    PERFORM fn_create_match(
-        p_tournament_id,
-        p_team_a_id,
-        p_team_b_id,
-        p_round_number
-    );
 END;
 $$;
 
