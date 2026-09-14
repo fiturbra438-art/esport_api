@@ -1,13 +1,9 @@
--- =====================================================
 -- VIEW: daftar turnamen
--- =====================================================
 CREATE OR REPLACE VIEW vw_tournaments AS
 SELECT id, name, status, total_slots, available_slots, created_at
 FROM tournaments;
 
--- =====================================================
 -- VIEW: profil tim dan anggotanya
--- =====================================================
 CREATE OR REPLACE VIEW vw_team_members AS
 SELECT
     teams.id AS team_id,
@@ -21,9 +17,7 @@ FROM teams
 LEFT JOIN team_members ON team_members.team_id = teams.id
 LEFT JOIN users ON users.id = team_members.user_id;
 
--- =====================================================
 -- VIEW: jadwal pertandingan dengan nama tim
--- =====================================================
 CREATE OR REPLACE VIEW vw_match_schedule AS
 SELECT
     matches.id,

@@ -1,6 +1,4 @@
--- =====================================================
 -- FUNCTION: membuat tim sekaligus mendaftarkan kapten
--- =====================================================
 CREATE OR REPLACE FUNCTION fn_create_team(p_name TEXT, p_captain_id INTEGER)
 RETURNS INTEGER
 LANGUAGE plpgsql
@@ -20,9 +18,7 @@ BEGIN
 END;
 $$;
 
--- =====================================================
 -- FUNCTION: join team
--- =====================================================
 CREATE OR REPLACE FUNCTION fn_add_team_member(p_team_id INTEGER, p_user_id INTEGER)
 RETURNS BOOLEAN
 LANGUAGE plpgsql
@@ -43,9 +39,7 @@ BEGIN
 END;
 $$;
 
--- =====================================================
 -- FUNCTION: remove member dari team
--- =====================================================
 CREATE OR REPLACE FUNCTION fn_remove_team_member(p_team_id INTEGER, p_user_id INTEGER)
 RETURNS BOOLEAN
 LANGUAGE plpgsql
@@ -66,9 +60,7 @@ BEGIN
 END;
 $$;
 
--- =====================================================
 -- FUNCTION: pindah kapten
--- =====================================================
 CREATE OR REPLACE FUNCTION fn_transfer_captain(p_team_id INTEGER, p_new_captain_id INTEGER)
 RETURNS BOOLEAN
 LANGUAGE plpgsql
@@ -90,9 +82,7 @@ BEGIN
 END;
 $$;
 
--- =====================================================
 -- FUNCTION: buat turnamen
--- =====================================================
 CREATE OR REPLACE FUNCTION fn_create_tournament(p_name TEXT)
 RETURNS VOID
 LANGUAGE plpgsql
@@ -103,9 +93,7 @@ BEGIN
 END;
 $$;
 
--- =====================================================
 -- FUNCTION: buat match
--- =====================================================
 CREATE OR REPLACE FUNCTION fn_create_match(
     p_tournament_id INTEGER,
     p_team_a_id INTEGER,
@@ -121,9 +109,7 @@ BEGIN
 END;
 $$;
 
--- =====================================================
 -- FUNCTION: update jadwal match
--- =====================================================
 CREATE OR REPLACE FUNCTION fn_update_match_schedule(p_match_id INTEGER, p_schedule_time TIMESTAMP)
 RETURNS BOOLEAN
 LANGUAGE plpgsql
