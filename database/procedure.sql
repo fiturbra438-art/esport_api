@@ -1,6 +1,4 @@
--- =====================================================
 -- PROCEDURE: register tim ke turnamen
--- =====================================================
 CREATE OR REPLACE PROCEDURE pr_register_team_to_tournament(p_tournament_id INTEGER, p_team_id INTEGER)
 LANGUAGE plpgsql
 AS $$
@@ -10,101 +8,55 @@ BEGIN
 END;
 $$;
 
--- =====================================================
--- PROCEDURE: membuat tim dan mendaftarkan kapten
--- =====================================================
 CREATE OR REPLACE PROCEDURE pr_create_team(p_name TEXT, p_captain_id INTEGER)
 LANGUAGE plpgsql
 AS $$
-DECLARE
-    v_team_id INTEGER;
 BEGIN
-    INSERT INTO teams (name, captain_id)
-    VALUES (p_name, p_captain_id)
-    RETURNING id INTO v_team_id;
-
-    INSERT INTO team_members (team_id, user_id, status)
-    VALUES (v_team_id, p_captain_id, 'active')
-    ON CONFLICT DO NOTHING;
+    PERFORM fn_create_team_with_captain(p_name, p_captain_id);
 END;
 $$;
 
--- =====================================================
--- PROCEDURE: menambahkan anggota tim
--- =====================================================
 CREATE OR REPLACE PROCEDURE pr_add_team_member(p_team_id INTEGER, p_user_id INTEGER)
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    IF EXISTS (
-        SELECT 1
-        FROM team_members
-        WHERE team_id = p_team_id AND user_id = p_user_id
-    ) THEN
+    IF NOT fn_add_team_member(p_team_id, p_user_id) THEN
         RAISE EXCEPTION 'User % sudah menjadi anggota team %', p_user_id, p_team_id;
     END IF;
-
-    INSERT INTO team_members (team_id, user_id, status)
-    VALUES (p_team_id, p_user_id, 'active');
 END;
 $$;
 
--- =====================================================
--- PROCEDURE: menghapus anggota tim
--- =====================================================
 CREATE OR REPLACE PROCEDURE pr_remove_team_member(p_team_id INTEGER, p_user_id INTEGER)
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    DELETE FROM team_members
-    WHERE team_id = p_team_id AND user_id = p_user_id;
-
-    IF NOT FOUND THEN
+    IF NOT fn_remove_team_member(p_team_id, p_user_id) THEN
         RAISE EXCEPTION 'User % bukan anggota team %', p_user_id, p_team_id;
     END IF;
 END;
 $$;
 
--- =====================================================
 -- PROCEDURE: memindahkan kapten tim
--- =====================================================
 CREATE OR REPLACE PROCEDURE pr_transfer_captain(p_team_id INTEGER, p_new_captain_id INTEGER)
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM team_members
-        WHERE team_id = p_team_id AND user_id = p_new_captain_id
-    ) THEN
+    IF NOT fn_transfer_captain(p_team_id, p_new_captain_id) THEN
         RAISE EXCEPTION 'User % belum menjadi anggota team %', p_new_captain_id, p_team_id;
-    END IF;
-
-    UPDATE teams
-    SET captain_id = p_new_captain_id
-    WHERE id = p_team_id;
-
-    IF NOT FOUND THEN
-        RAISE EXCEPTION 'Team % tidak ditemukan', p_team_id;
     END IF;
 END;
 $$;
 
--- =====================================================
 -- PROCEDURE: membuat turnamen
--- =====================================================
 CREATE OR REPLACE PROCEDURE pr_create_tournament(p_name TEXT)
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    INSERT INTO tournaments (name, total_slots, available_slots, status)
-    VALUES (p_name, 0, 0, 'open');
+    PERFORM fn_create_tournament(p_name);
 END;
 $$;
 
--- =====================================================
 -- PROCEDURE: membuat match
--- =====================================================
 CREATE OR REPLACE PROCEDURE pr_create_match(
     p_tournament_id INTEGER,
     p_team_a_id INTEGER,
@@ -114,14 +66,16 @@ CREATE OR REPLACE PROCEDURE pr_create_match(
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    INSERT INTO matches (tournament_id, team_a_id, team_b_id, round_number)
-    VALUES (p_tournament_id, p_team_a_id, p_team_b_id, p_round_number);
+    PERFORM fn_create_match(
+        p_tournament_id,
+        p_team_a_id,
+        p_team_b_id,
+        p_round_number
+    );
 END;
 $$;
 
--- =====================================================
 -- PROCEDURE: mengatur jadwal match
--- =====================================================
 CREATE OR REPLACE PROCEDURE pr_update_match_schedule(
     p_match_id INTEGER,
     p_schedule_time TIMESTAMP
@@ -129,19 +83,13 @@ CREATE OR REPLACE PROCEDURE pr_update_match_schedule(
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    UPDATE matches
-    SET schedule_time = p_schedule_time
-    WHERE id = p_match_id;
-
-    IF NOT FOUND THEN
+    IF NOT fn_update_match_schedule(p_match_id, p_schedule_time) THEN
         RAISE EXCEPTION 'Match % tidak ditemukan', p_match_id;
     END IF;
 END;
 $$;
 
--- =====================================================
 -- PROCEDURE: menghapus turnamen
--- =====================================================
 CREATE OR REPLACE PROCEDURE pr_delete_tournament(p_tournament_id INTEGER)
 LANGUAGE plpgsql
 AS $$
