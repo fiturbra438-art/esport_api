@@ -22,36 +22,19 @@ pub async fn create_match(
     State(pool): State<PgPool>,
     Json(payload): Json<CreateMatchDto>,
 ) -> impl IntoResponse {
-    let mut transaction = match pool.begin().await {
-        Ok(transaction) => transaction,
-        Err(error) => {
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Gagal memulai transaksi: {error}"),
-            );
-        }
-    };
-
     if let Err(error) = sqlx::query!(
-        "SELECT fn_create_match($1, $2, $3, $4)",
+        "CALL pr_create_match($1, $2, $3, $4)",
         payload.tournament_id,
         payload.team1_id,
         payload.team2_id,
         payload.round_number
     )
-    .fetch_one(&mut *transaction)
+    .execute(&pool)
     .await
     {
         return error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Gagal membuat pertandingan: {error}"),
-        );
-    }
-
-    if let Err(error) = transaction.commit().await {
-        return error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Gagal commit transaksi: {error}"),
         );
     }
 
