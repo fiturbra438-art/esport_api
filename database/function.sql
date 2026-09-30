@@ -1,20 +1,15 @@
 -- FUNCTION: membuat tim sekaligus mendaftarkan kapten
-CREATE OR REPLACE FUNCTION fn_create_team(p_name TEXT, p_captain_id INTEGER)
-RETURNS INTEGER
+DROP FUNCTION IF EXISTS fn_create_team(TEXT, INTEGER);
+
+CREATE FUNCTION fn_create_team(p_name TEXT, p_captain_id INTEGER)
+RETURNS TABLE(id INTEGER, name VARCHAR, captain_id INTEGER)
 LANGUAGE plpgsql
 AS $$
-DECLARE
-    v_team_id INTEGER;
 BEGIN
+    RETURN QUERY
     INSERT INTO teams (name, captain_id)
     VALUES (p_name, p_captain_id)
-    RETURNING id INTO v_team_id;
-
-    INSERT INTO team_members (team_id, user_id, status)
-    VALUES (v_team_id, p_captain_id, 'active')
-    ON CONFLICT DO NOTHING;
-
-    RETURN v_team_id;
+    RETURNING teams.id, teams.name, teams.captain_id;
 END;
 $$;
 
@@ -83,13 +78,17 @@ END;
 $$;
 
 -- FUNCTION: buat turnamen
-CREATE OR REPLACE FUNCTION fn_create_tournament(p_name TEXT)
-RETURNS VOID
+DROP FUNCTION IF EXISTS fn_create_tournament(TEXT);
+
+CREATE FUNCTION fn_create_tournament(p_name TEXT)
+RETURNS TABLE(id INTEGER, name VARCHAR, status VARCHAR)
 LANGUAGE plpgsql
 AS $$
 BEGIN
+    RETURN QUERY
     INSERT INTO tournaments (name, total_slots, available_slots, status)
-    VALUES (p_name, 0, 0, 'open');
+    VALUES (p_name, 0, 0, 'open')
+    RETURNING tournaments.id, tournaments.name, tournaments.status;
 END;
 $$;
 

@@ -14,7 +14,7 @@ pub struct CreateTournamentDto {
     pub name: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, sqlx::FromRow)]
 pub struct TournamentResponse {
     pub id: i32,
     pub name: String,
@@ -25,43 +25,21 @@ pub async fn create_tournament(
     State(pool): State<PgPool>,
     Json(payload): Json<CreateTournamentDto>,
 ) -> impl IntoResponse {
-    let mut transaction = match pool.begin().await {
-        Ok(transaction) => transaction,
+    let tournament = match sqlx::query_as::<_, TournamentResponse>(
+        "CALL pr_create_tournament($1, NULL, NULL, NULL)",
+    )
+    .bind(payload.name)
+    .fetch_one(&pool)
+    .await
+    {
         Err(error) => {
             return error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Gagal memulai transaksi: {error}"),
+                format!("Gagal membuat turnamen: {error}"),
             );
         }
-    };
-
-    let tournament = match sqlx::query!(
-        "SELECT fn_create_tournament($1)",
-        payload.name
-    )
-    .fetch_one(&mut *transaction)
-    .await
-    {
-        Ok(_) => match sqlx::query_as!(
-        TournamentResponse,
-        "SELECT id AS \"id!\", name AS \"name!\", status FROM vw_tournaments WHERE name = $1 ORDER BY id DESC LIMIT 1",
-        payload.name
-    )
-    .fetch_one(&mut *transaction)
-    .await
-    {
         Ok(tournament) => tournament,
-        Err(error) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, format!("Turnamen dibuat tetapi gagal mengambil datanya: {error}")),
-    },
-        Err(error) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, format!("Gagal membuat turnamen: {error}")),
     };
-
-    if let Err(error) = transaction.commit().await {
-        return error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Gagal commit transaksi: {error}"),
-        );
-    }
 
     (
         StatusCode::CREATED,

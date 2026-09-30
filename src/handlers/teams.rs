@@ -15,7 +15,7 @@ pub struct CreateTeamDto {
     pub captain_id: i32,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, sqlx::FromRow)]
 pub struct TeamResponse {
     pub id: i32,
     pub name: String,
@@ -26,36 +26,15 @@ pub async fn create_team(
     State(pool): State<PgPool>,
     Json(payload): Json<CreateTeamDto>,
 ) -> impl IntoResponse {
-    let mut transaction = match pool.begin().await {
-        Ok(transaction) => transaction,
-        Err(error) => {
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Gagal memulai transaksi: {error}"),
-            );
-        }
-    };
-
-    let team = match sqlx::query!(
-        "SELECT fn_create_team($1, $2)",
-        payload.name,
-        payload.captain_id
+    let team = match sqlx::query_as::<_, TeamResponse>(
+        "CALL pr_create_team($1, $2, NULL, NULL, NULL)",
     )
-    .fetch_one(&mut *transaction)
+    .bind(payload.name)
+    .bind(payload.captain_id)
+    .fetch_one(&pool)
     .await
     {
-        Ok(_) => match sqlx::query_as!(
-            TeamResponse,
-            "SELECT id AS \"id!\", name AS \"name!\", captain_id FROM teams WHERE name = $1 AND captain_id = $2 ORDER BY id DESC LIMIT 1",
-            payload.name,
-            payload.captain_id
-        )
-        .fetch_one(&mut *transaction)
-        .await
-        {
-            Ok(team) => team,
-            Err(error) => return error_response(StatusCode::BAD_REQUEST, format!("Tim dibuat tetapi gagal mengambil data: {error}")),
-        },
+        Ok(team) => team,
         Err(error) => {
             return error_response(
                 StatusCode::BAD_REQUEST,
@@ -63,13 +42,6 @@ pub async fn create_team(
             );
         }
     };
-
-    if let Err(error) = transaction.commit().await {
-        return error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Gagal commit transaksi: {error}"),
-        );
-    }
 
     (
         StatusCode::CREATED,
