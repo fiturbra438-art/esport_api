@@ -1,0 +1,240 @@
+{
+  "info": {
+    "name": "Esport API - Uji Semua Fitur",
+    "description": "Koleksi uji end-to-end API Esport. Jalankan folder Skenario Berurutan melalui Collection Runner dari atas ke bawah. ID hasil request disimpan otomatis sebagai collection variables.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://127.0.0.1:8080" },
+    { "key": "runId", "value": "" },
+    { "key": "captainId", "value": "" },
+    { "key": "memberId", "value": "" },
+    { "key": "reserveId", "value": "" },
+    { "key": "teamId", "value": "" },
+    { "key": "tournamentId", "value": "" },
+    { "key": "matchId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Skenario Berurutan",
+      "description": "Jalankan folder ini dengan Collection Runner. Urutan request penting karena ID dibuat lalu dipakai oleh request berikutnya.",
+      "item": [
+        {
+          "name": "Cek API aktif",
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('API merespons HTTP 200', function () { pm.response.to.have.status(200); });",
+            "pm.test('Pesan menyatakan API berjalan', function () { pm.expect(pm.response.text()).to.include('API'); });",
+            "pm.collectionVariables.set('runId', Date.now().toString());"
+          ] } }]
+        },
+        {
+          "name": "Daftar user kapten",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"username\": \"pm_captain_{{runId}}\",\n  \"password\": \"test-password\",\n  \"mmr_point\": 1200\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/users" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('User kapten berhasil dibuat (201)', function () { pm.response.to.have.status(201); });",
+            "const body = pm.response.json();",
+            "pm.test('Respons menyertakan ID user', function () { pm.expect(body.data.id).to.be.a('number'); });",
+            "pm.collectionVariables.set('captainId', body.data.id.toString());"
+          ] } }]
+        },
+        {
+          "name": "Daftar user anggota",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"username\": \"pm_member_{{runId}}\",\n  \"password\": \"test-password\",\n  \"mmr_point\": 950\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/users" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('User anggota berhasil dibuat (201)', function () { pm.response.to.have.status(201); });",
+            "const body = pm.response.json();",
+            "pm.collectionVariables.set('memberId', body.data.id.toString());"
+          ] } }]
+        },
+        {
+          "name": "Daftar user cadangan",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"username\": \"pm_reserve_{{runId}}\",\n  \"password\": \"test-password\",\n  \"mmr_point\": 800\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/users" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('User cadangan berhasil dibuat (201)', function () { pm.response.to.have.status(201); });",
+            "const body = pm.response.json();",
+            "pm.collectionVariables.set('reserveId', body.data.id.toString());"
+          ] } }]
+        },
+        {
+          "name": "Ambil profil user",
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/users/{{captainId}}" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Profil user ditemukan (200)', function () { pm.response.to.have.status(200); });",
+            "pm.test('Username sesuai user kapten', function () { pm.expect(pm.response.json().data.username).to.include('pm_captain_'); });"
+          ] } }]
+        },
+        {
+          "name": "Profil user tidak ditemukan (404)",
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/users/2147483647" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('User tidak ada menghasilkan 404', function () { pm.response.to.have.status(404); });",
+            "pm.test('Respons berisi error', function () { pm.expect(pm.response.json()).to.have.property('error'); });"
+          ] } }]
+        },
+        {
+          "name": "Buat tim",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"PM Team {{runId}}\",\n  \"captain_id\": {{captainId}}\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/teams" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Tim berhasil dibuat (201)', function () { pm.response.to.have.status(201); });",
+            "const body = pm.response.json();",
+            "pm.test('Respons menyertakan ID tim', function () { pm.expect(body.data.id).to.be.a('number'); });",
+            "pm.collectionVariables.set('teamId', body.data.id.toString());"
+          ] } }]
+        },
+        {
+          "name": "Ambil profil tim",
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/teams/{{teamId}}" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Profil tim ditemukan (200)', function () { pm.response.to.have.status(200); });",
+            "const body = pm.response.json();",
+            "pm.test('Kapten otomatis masuk roster', function () { pm.expect(body.data.captain_id).to.eql(Number(pm.collectionVariables.get('captainId'))); pm.expect(body.data.members).to.have.lengthOf(1); });"
+          ] } }]
+        },
+        {
+          "name": "Tambahkan anggota ke tim",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"team_id\": {{teamId}},\n  \"user_id\": {{memberId}}\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/teams/join" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Anggota berhasil join (201)', function () { pm.response.to.have.status(201); });"
+          ] } }]
+        },
+        {
+          "name": "Uji join anggota duplikat (400)",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"team_id\": {{teamId}},\n  \"user_id\": {{memberId}}\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/teams/join" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Join duplikat ditolak (400)', function () { pm.response.to.have.status(400); });"
+          ] } }]
+        },
+        {
+          "name": "Tambahkan anggota cadangan",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"team_id\": {{teamId}},\n  \"user_id\": {{reserveId}}\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/teams/join" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Anggota cadangan berhasil join (201)', function () { pm.response.to.have.status(201); });"
+          ] } }]
+        },
+        {
+          "name": "Pindahkan jabatan kapten",
+          "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"team_id\": {{teamId}},\n  \"new_captain_id\": {{memberId}}\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/teams/captain" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Jabatan kapten berhasil dipindahkan (200)', function () { pm.response.to.have.status(200); });"
+          ] } }]
+        },
+        {
+          "name": "Keluarkan anggota dari tim",
+          "request": { "method": "DELETE", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"team_id\": {{teamId}},\n  \"user_id\": {{reserveId}}\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/teams/members" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Anggota berhasil dihapus (200)', function () { pm.response.to.have.status(200); });"
+          ] } }]
+        },
+        {
+          "name": "Verifikasi profil tim setelah perubahan",
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/teams/{{teamId}}" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Profil tim tetap tersedia (200)', function () { pm.response.to.have.status(200); });",
+            "const body = pm.response.json();",
+            "pm.test('Kapten baru benar dan anggota cadangan terhapus', function () { pm.expect(body.data.captain_id).to.eql(Number(pm.collectionVariables.get('memberId'))); pm.expect(body.data.members).to.have.lengthOf(2); pm.expect(body.data.members.some(function (member) { return member.username.includes('pm_reserve_'); })).to.eql(false); });"
+          ] } }]
+        },
+        {
+          "name": "Profil tim tidak ditemukan (404)",
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/teams/2147483647" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Tim tidak ada menghasilkan 404', function () { pm.response.to.have.status(404); });"
+          ] } }]
+        },
+        {
+          "name": "Buat turnamen",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"PM Tournament {{runId}}\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/tournaments" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Turnamen berhasil dibuat (201)', function () { pm.response.to.have.status(201); });",
+            "const body = pm.response.json();",
+            "pm.test('Respons menyertakan ID turnamen', function () { pm.expect(body.data.id).to.be.a('number'); });",
+            "pm.collectionVariables.set('tournamentId', body.data.id.toString());"
+          ] } }]
+        },
+        {
+          "name": "Ambil daftar turnamen",
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/tournaments" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Daftar turnamen berhasil diambil (200)', function () { pm.response.to.have.status(200); });",
+            "pm.test('Turnamen baru ada di daftar', function () { pm.expect(pm.response.json().data.some(function (tournament) { return tournament.id === Number(pm.collectionVariables.get('tournamentId')); })).to.eql(true); });"
+          ] } }]
+        },
+        {
+          "name": "Daftarkan tim ke turnamen",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"tournament_id\": {{tournamentId}},\n  \"team_id\": {{teamId}}\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/tournaments/register" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Tim berhasil didaftarkan (201)', function () { pm.response.to.have.status(201); });"
+          ] } }]
+        },
+        {
+          "name": "Uji pendaftaran turnamen duplikat (400)",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"tournament_id\": {{tournamentId}},\n  \"team_id\": {{teamId}}\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/tournaments/register" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Pendaftaran duplikat ditolak (400)', function () { pm.response.to.have.status(400); });"
+          ] } }]
+        },
+        {
+          "name": "Buat pertandingan",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"tournament_id\": {{tournamentId}},\n  \"team1_id\": {{teamId}},\n  \"team2_id\": null,\n  \"round_number\": 1\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/matches" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Pertandingan berhasil dibuat (201)', function () { pm.response.to.have.status(201); });"
+          ] } }]
+        },
+        {
+          "name": "Ambil pertandingan turnamen",
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/tournaments/{{tournamentId}}/matches" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Daftar pertandingan berhasil diambil (200)', function () { pm.response.to.have.status(200); });",
+            "const body = pm.response.json();",
+            "pm.test('Pertandingan ronde 1 ditemukan', function () { pm.expect(body.data).to.have.lengthOf(1); pm.expect(body.data[0].round_number).to.eql(1); });",
+            "pm.collectionVariables.set('matchId', body.data[0].id.toString());"
+          ] } }]
+        },
+        {
+          "name": "Uji format jadwal tidak valid (400)",
+          "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"schedule_time\": \"tanggal-salah\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/matches/{{matchId}}/schedule" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Format jadwal salah ditolak (400)', function () { pm.response.to.have.status(400); });"
+          ] } }]
+        },
+        {
+          "name": "Atur jadwal pertandingan",
+          "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"schedule_time\": \"2026-10-01 19:30:00\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/matches/{{matchId}}/schedule" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Jadwal pertandingan berhasil diatur (200)', function () { pm.response.to.have.status(200); });"
+          ] } }]
+        },
+        {
+          "name": "Uji match tidak ditemukan (400)",
+          "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"schedule_time\": \"2026-10-01 19:30:00\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/matches/2147483647/schedule" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Match tidak ada menghasilkan 400', function () { pm.response.to.have.status(400); });"
+          ] } }]
+        },
+        {
+          "name": "Hapus turnamen",
+          "request": { "method": "DELETE", "header": [], "url": "{{baseUrl}}/api/tournaments/{{tournamentId}}" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Turnamen berhasil dihapus (200)', function () { pm.response.to.have.status(200); });"
+          ] } }]
+        },
+        {
+          "name": "Verifikasi pertandingan ikut terhapus",
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/tournaments/{{tournamentId}}/matches" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Endpoint daftar pertandingan tetap merespons (200)', function () { pm.response.to.have.status(200); });",
+            "pm.test('Tidak ada pertandingan setelah turnamen dihapus', function () { pm.expect(pm.response.json().data).to.have.lengthOf(0); });"
+          ] } }]
+        },
+        {
+          "name": "Uji hapus turnamen tidak ditemukan (404)",
+          "request": { "method": "DELETE", "header": [], "url": "{{baseUrl}}/api/tournaments/2147483647" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Turnamen tidak ada menghasilkan 404', function () { pm.response.to.have.status(404); });"
+          ] } }]
+        }
+      ]
+    }
+  ]
+}
