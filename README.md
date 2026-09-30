@@ -28,7 +28,7 @@ REST API untuk mengelola player, tim, turnamen, dan jadwal pertandingan e-sport.
 2. Atur `DATABASE_URL` agar SQLx dapat memeriksa query saat compile. Sesuaikan username, password, dan nama database dengan PostgreSQL yang digunakan:
 
    ```powershell
-   $env:DATABASE_URL = "postgres://admin:admin1206@localhost:5432/TOURNAMEN_ESPORT"
+   $env:DATABASE_URL = "postgres://postgres:fitur1206@localhost:5432/TOURNAMEN_ESPORT"
    ```
 
 3. Pasang SQLx CLI jika belum tersedia, lalu jalankan migrasi sebelum build agar skema tersedia untuk pemeriksaan query SQLx:

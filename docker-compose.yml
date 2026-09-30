@@ -4,8 +4,8 @@ services:
     container_name: esport_postgres
     restart: always
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: admin1206
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: fitur1206
       POSTGRES_DB: TOURNAMEN_ESPORT
     ports:
       - "5432:5432"
