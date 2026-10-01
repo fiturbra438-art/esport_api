@@ -2,17 +2,21 @@ use axum::{
     Router,
     routing::{delete, get, post, put},
 };
+use dotenvy::dotenv;
 use sqlx::postgres::PgPoolOptions;
+use std::env;
 
 mod handlers;
 
 #[tokio::main]
 async fn main() {
-    let database_url: &str = "postgres://postgres:fitur1206@localhost:5432/TOURNAMEN_ESPORT";
+    dotenv().ok();
+    let database_url = env::var("DATABASE_URL")
+        .expect("❌ DATABASE_URL tidak ditemukan di environment atau file .env");
 
     let pool: sqlx::Pool<sqlx::Postgres> = PgPoolOptions::new()
         .max_connections(5)
-        .connect(database_url)
+        .connect(&database_url)
         .await
         .expect("❌ Gagal terhubung ke database! Pastikan Docker menyala.");
 
