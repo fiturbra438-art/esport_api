@@ -8,7 +8,12 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use time::PrimitiveDateTime;
 
-use super::response::{error_response, message};
+use super::response::{error_response, log_error, message};
+
+fn valid_name(value: &str) -> bool {
+    let value = value.trim();
+    !value.is_empty() && value.chars().count() <= 100
+}
 
 #[derive(Deserialize)]
 pub struct CreateMatchDto {
@@ -22,6 +27,22 @@ pub async fn create_match(
     State(pool): State<PgPool>,
     Json(payload): Json<CreateMatchDto>,
 ) -> impl IntoResponse {
+    if !valid_name(&payload.tournament_name)
+        || payload
+            .team1_name
+            .as_deref()
+            .is_some_and(|name| !valid_name(name))
+        || payload
+            .team2_name
+            .as_deref()
+            .is_some_and(|name| !valid_name(name))
+        || payload.round_number <= 0
+    {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "Turnamen wajib diisi, nama tim maksimal 100 karakter, dan round_number harus positif",
+        );
+    }
     if let Err(error) = sqlx::query("CALL pr_create_match($1, $2, $3, $4)")
         .bind(payload.tournament_name)
         .bind(payload.team1_name)
@@ -30,10 +51,8 @@ pub async fn create_match(
         .execute(&pool)
         .await
     {
-        return error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Gagal membuat pertandingan: {error}"),
-        );
+        log_error("create_match", error);
+        return error_response(StatusCode::BAD_REQUEST, "Gagal membuat pertandingan");
     }
 
     message(
@@ -54,6 +73,9 @@ pub async fn get_tournament_matches(
     State(pool): State<PgPool>,
     Path(tournament_id): Path<i32>,
 ) -> impl IntoResponse {
+    if tournament_id <= 0 {
+        return error_response(StatusCode::BAD_REQUEST, "ID turnamen harus positif");
+    }
     match sqlx::query_as!(
         MatchResponse,
         "SELECT id AS \"id!\", round_number, team1_name, team2_name FROM vw_match_schedule WHERE tournament_id = $1 ORDER BY round_number ASC, id ASC",
@@ -66,7 +88,10 @@ pub async fn get_tournament_matches(
             StatusCode::OK,
             Json(serde_json::json!({"message": "Berhasil mengambil jadwal pertandingan", "data": matches})),
         ).into_response(),
-        Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, format!("Gagal mengambil data pertandingan: {error}")),
+        Err(error) => {
+            log_error("get_tournament_matches", error);
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, "Gagal mengambil jadwal pertandingan")
+        }
     }
 }
 
@@ -80,17 +105,18 @@ pub async fn update_match_schedule(
     Path(match_id): Path<i32>,
     Json(payload): Json<UpdateScheduleDto>,
 ) -> impl IntoResponse {
+    if match_id <= 0 {
+        return error_response(StatusCode::BAD_REQUEST, "ID pertandingan harus positif");
+    }
     let schedule_time = match PrimitiveDateTime::parse(
         &payload.schedule_time,
         &time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second]"),
     ) {
         Ok(schedule_time) => schedule_time,
-        Err(error) => {
+        Err(_) => {
             return error_response(
                 StatusCode::BAD_REQUEST,
-                format!(
-                    "Gagal mengatur jadwal. Pastikan format waktu benar (YYYY-MM-DD HH:MM:SS). Detail: {error}"
-                ),
+                "Format waktu harus YYYY-MM-DD HH:MM:SS",
             );
         }
     };
@@ -108,11 +134,12 @@ pub async fn update_match_schedule(
             StatusCode::OK,
             "Jadwal pertandingan berhasil ditentukan/diperbarui!",
         ),
-        Err(error) => error_response(
-            StatusCode::BAD_REQUEST,
-            format!(
-                "Gagal mengatur jadwal. Pastikan format waktu benar (YYYY-MM-DD HH:MM:SS). Detail: {error}"
-            ),
-        ),
+        Err(error) => {
+            log_error("update_match_schedule", error);
+            error_response(
+                StatusCode::BAD_REQUEST,
+                "Gagal memperbarui jadwal pertandingan",
+            )
+        }
     }
 }

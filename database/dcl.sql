@@ -1,13 +1,6 @@
 -- Hak akses database untuk role aplikasi.
--- Jalankan sebagai user postgres atau pemilik database.
-
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'esport_app') THEN
-        CREATE ROLE esport_app LOGIN PASSWORD 'esport_app_password';
-    END IF;
-END
-$$;
+-- Buat role esport_app secara terpisah dengan password acak yang disimpan
+-- di secret manager/environment, lalu jalankan file ini sebagai pemilik DB.
 
 GRANT CONNECT ON DATABASE "TOURNAMEN_ESPORT" TO esport_app;
 GRANT USAGE ON SCHEMA public TO esport_app;

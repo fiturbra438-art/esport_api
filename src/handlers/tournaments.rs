@@ -7,7 +7,12 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
-use super::response::{error_response, message};
+use super::response::{error_response, log_error, message};
+
+fn valid_name(value: &str) -> bool {
+    let value = value.trim();
+    !value.is_empty() && value.chars().count() <= 100
+}
 
 #[derive(Deserialize)]
 pub struct CreateTournamentDto {
@@ -25,6 +30,12 @@ pub async fn create_tournament(
     State(pool): State<PgPool>,
     Json(payload): Json<CreateTournamentDto>,
 ) -> impl IntoResponse {
+    if !valid_name(&payload.name) {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "Nama turnamen wajib diisi (maksimal 100 karakter)",
+        );
+    }
     let tournament = match sqlx::query_as::<_, TournamentResponse>(
         "CALL pr_create_tournament($1, NULL, NULL, NULL)",
     )
@@ -33,10 +44,8 @@ pub async fn create_tournament(
     .await
     {
         Err(error) => {
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Gagal membuat turnamen: {error}"),
-            );
+            log_error("create_tournament", error);
+            return error_response(StatusCode::BAD_REQUEST, "Gagal membuat turnamen");
         }
         Ok(tournament) => tournament,
     };
@@ -56,7 +65,10 @@ pub async fn get_tournaments(State(pool): State<PgPool>) -> impl IntoResponse {
             StatusCode::OK,
             Json(serde_json::json!({"message": "Berhasil mengambil daftar turnamen", "data": tournaments})),
         ).into_response(),
-        Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, format!("Gagal mengambil data turnamen: {error}")),
+        Err(error) => {
+            log_error("get_tournaments", error);
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, "Gagal mengambil data turnamen")
+        }
     }
 }
 
@@ -70,6 +82,12 @@ pub async fn register_tournament(
     State(pool): State<PgPool>,
     Json(payload): Json<RegisterTournamentDto>,
 ) -> impl IntoResponse {
+    if !valid_name(&payload.tournament_name) || !valid_name(&payload.team_name) {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "Nama turnamen dan tim wajib diisi (maksimal 100 karakter)",
+        );
+    }
     match sqlx::query("CALL pr_register_team_to_tournament($1, $2)")
         .bind(payload.tournament_name)
         .bind(payload.team_name)
@@ -80,12 +98,13 @@ pub async fn register_tournament(
             StatusCode::CREATED,
             "Tim berhasil didaftarkan ke turnamen dan siap bertanding!",
         ),
-        Err(error) => error_response(
-            StatusCode::BAD_REQUEST,
-            format!(
-                "Gagal mendaftar. Pastikan turnamen/tim ada, atau tim ini mungkin sudah terdaftar. Detail: {error}"
-            ),
-        ),
+        Err(error) => {
+            log_error("register_tournament", error);
+            error_response(
+                StatusCode::BAD_REQUEST,
+                "Gagal mendaftarkan tim ke turnamen",
+            )
+        }
     }
 }
 
@@ -93,6 +112,12 @@ pub async fn delete_tournament(
     State(pool): State<PgPool>,
     Path(tournament_name): Path<String>,
 ) -> impl IntoResponse {
+    if !valid_name(&tournament_name) {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "Nama turnamen wajib diisi (maksimal 100 karakter)",
+        );
+    }
     match sqlx::query("CALL pr_delete_tournament($1)")
         .bind(tournament_name)
         .execute(&pool)
@@ -102,9 +127,9 @@ pub async fn delete_tournament(
             StatusCode::OK,
             "Turnamen beserta seluruh data pendaftarannya berhasil dihapus!",
         ),
-        Err(error) => error_response(
-            StatusCode::NOT_FOUND,
-            format!("Gagal menghapus turnamen: {error}"),
-        ),
+        Err(error) => {
+            log_error("delete_tournament", error);
+            error_response(StatusCode::NOT_FOUND, "Gagal menghapus turnamen")
+        }
     }
 }

@@ -20,6 +20,7 @@ should not be split into feature subdirectories.
 | 008 | `008_add_procedure_indexes.sql` | Add indexes used by procedures and foreign-key lookups. |
 | 009 | `009_lookup_ids_by_names.sql` | Add name-based lookups and procedure signatures. |
 | 010 | `010_wrap_business_functions_with_procedures.sql` | Keep business logic in functions and expose it through procedures. |
+| 011 | `011_hide_password_from_registration.sql` | Stop returning the stored password hash from registration. |
 
 ## Current database definitions
 

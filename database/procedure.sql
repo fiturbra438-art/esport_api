@@ -61,14 +61,13 @@ CREATE PROCEDURE pr_register_user(
     IN p_mmr_point INTEGER,
     OUT id INTEGER,
     OUT username VARCHAR,
-    OUT password VARCHAR,
     OUT mmr_point INTEGER
 )
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    SELECT created_user.id, created_user.username, created_user.password, created_user.mmr_point
-    INTO id, username, password, mmr_point
+    SELECT created_user.id, created_user.username, created_user.mmr_point
+    INTO id, username, mmr_point
     FROM fn_register_user(p_username, p_password, p_mmr_point) AS created_user;
 END;
 $$;

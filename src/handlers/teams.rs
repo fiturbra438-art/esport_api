@@ -7,7 +7,12 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
-use super::response::{error_response, message};
+use super::response::{error_response, log_error, message};
+
+fn valid_name(value: &str) -> bool {
+    let value = value.trim();
+    !value.is_empty() && value.chars().count() <= 100
+}
 
 #[derive(Deserialize)]
 pub struct CreateTeamDto {
@@ -26,6 +31,12 @@ pub async fn create_team(
     State(pool): State<PgPool>,
     Json(payload): Json<CreateTeamDto>,
 ) -> impl IntoResponse {
+    if !valid_name(&payload.name) || !valid_name(&payload.captain_username) {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "Nama tim dan username kapten wajib diisi (maksimal 100 karakter)",
+        );
+    }
     let team =
         match sqlx::query_as::<_, TeamResponse>("CALL pr_create_team($1, $2, NULL, NULL, NULL)")
             .bind(payload.name)
@@ -35,10 +46,8 @@ pub async fn create_team(
         {
             Ok(team) => team,
             Err(error) => {
-                return error_response(
-                    StatusCode::BAD_REQUEST,
-                    format!("Gagal membuat tim (mungkin nama tim sudah dipakai): {error}"),
-                );
+                log_error("create_team", error);
+                return error_response(StatusCode::BAD_REQUEST, "Gagal membuat tim");
             }
         };
 
@@ -62,6 +71,12 @@ pub async fn join_team(
     State(pool): State<PgPool>,
     Json(payload): Json<JoinTeamDto>,
 ) -> impl IntoResponse {
+    if !valid_name(&payload.team_name) || !valid_name(&payload.username) {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "Nama tim dan username wajib diisi (maksimal 100 karakter)",
+        );
+    }
     let result = sqlx::query("CALL pr_add_team_member($1, $2)")
         .bind(payload.team_name)
         .bind(payload.username)
@@ -73,10 +88,10 @@ pub async fn join_team(
             StatusCode::CREATED,
             "Player berhasil bergabung ke dalam tim!",
         ),
-        Err(error) => error_response(
-            StatusCode::BAD_REQUEST,
-            format!("Gagal bergabung, mungkin player sudah ada di tim ini. Detail: {error}"),
-        ),
+        Err(error) => {
+            log_error("join_team", error);
+            error_response(StatusCode::BAD_REQUEST, "Gagal menambahkan anggota ke tim")
+        }
     }
 }
 
@@ -98,6 +113,9 @@ pub async fn get_team_profile(
     State(pool): State<PgPool>,
     Path(team_id): Path<i32>,
 ) -> impl IntoResponse {
+    if team_id <= 0 {
+        return error_response(StatusCode::BAD_REQUEST, "ID tim harus positif");
+    }
     let team = match sqlx::query!(
         "SELECT team_id AS \"id!\", team_name AS \"name!\", captain_id FROM vw_team_members WHERE team_id = $1 LIMIT 1",
         team_id
@@ -108,10 +126,8 @@ pub async fn get_team_profile(
         Ok(Some(team)) => team,
         Ok(None) => return error_response(StatusCode::NOT_FOUND, "Tim tidak ditemukan"),
         Err(error) => {
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Database error: {error}"),
-            );
+            log_error("get_team_profile", error);
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "Gagal mengambil profil tim");
         }
     };
 
@@ -124,7 +140,10 @@ pub async fn get_team_profile(
     .await
     {
         Ok(members) => members,
-        Err(error) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, format!("Gagal mengambil anggota tim: {error}")),
+        Err(error) => {
+            log_error("get_team_members", error);
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "Gagal mengambil anggota tim");
+        }
     };
 
     (
@@ -147,6 +166,12 @@ pub async fn remove_team_member(
     State(pool): State<PgPool>,
     Json(payload): Json<RemoveMemberDto>,
 ) -> impl IntoResponse {
+    if !valid_name(&payload.team_name) || !valid_name(&payload.username) {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "Nama tim dan username wajib diisi (maksimal 100 karakter)",
+        );
+    }
     let result = sqlx::query("CALL pr_remove_team_member($1, $2)")
         .bind(payload.team_name)
         .bind(payload.username)
@@ -155,10 +180,10 @@ pub async fn remove_team_member(
 
     match result {
         Ok(_) => message(StatusCode::OK, "Player berhasil keluar/dihapus dari tim!"),
-        Err(error) => error_response(
-            StatusCode::NOT_FOUND,
-            format!("Gagal memproses request: {error}"),
-        ),
+        Err(error) => {
+            log_error("remove_team_member", error);
+            error_response(StatusCode::BAD_REQUEST, "Gagal menghapus anggota tim")
+        }
     }
 }
 
@@ -172,6 +197,12 @@ pub async fn transfer_captain(
     State(pool): State<PgPool>,
     Json(payload): Json<TransferCaptainDto>,
 ) -> impl IntoResponse {
+    if !valid_name(&payload.team_name) || !valid_name(&payload.new_captain_username) {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "Nama tim dan username kapten baru wajib diisi (maksimal 100 karakter)",
+        );
+    }
     let result = sqlx::query("CALL pr_transfer_captain($1, $2)")
         .bind(payload.team_name)
         .bind(payload.new_captain_username)
@@ -183,9 +214,9 @@ pub async fn transfer_captain(
             StatusCode::OK,
             "Jabatan ketua tim berhasil dipindahkan ke player baru!",
         ),
-        Err(error) => error_response(
-            StatusCode::NOT_FOUND,
-            format!("Gagal memindahkan ketua tim: {error}"),
-        ),
+        Err(error) => {
+            log_error("transfer_captain", error);
+            error_response(StatusCode::BAD_REQUEST, "Gagal memindahkan kapten tim")
+        }
     }
 }
