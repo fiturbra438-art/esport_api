@@ -1,7 +1,26 @@
 -- Lookup functions
-CREATE OR REPLACE FUNCTION fn_user_id_by_username(
-    p_username TEXT
-)
+DROP PROCEDURE IF EXISTS pr_create_team(TEXT, INTEGER);
+DROP PROCEDURE IF EXISTS pr_create_team(TEXT, TEXT);
+DROP PROCEDURE IF EXISTS pr_create_tournament(TEXT);
+DROP PROCEDURE IF EXISTS pr_register_team_to_tournament(INTEGER, INTEGER);
+DROP PROCEDURE IF EXISTS pr_register_team_to_tournament(TEXT, TEXT);
+DROP PROCEDURE IF EXISTS pr_add_team_member(INTEGER, INTEGER);
+DROP PROCEDURE IF EXISTS pr_add_team_member(TEXT, TEXT);
+DROP PROCEDURE IF EXISTS pr_remove_team_member(INTEGER, INTEGER);
+DROP PROCEDURE IF EXISTS pr_remove_team_member(TEXT, TEXT);
+DROP PROCEDURE IF EXISTS pr_transfer_captain(INTEGER, INTEGER);
+DROP PROCEDURE IF EXISTS pr_transfer_captain(TEXT, TEXT);
+DROP PROCEDURE IF EXISTS pr_create_match(INTEGER, INTEGER, INTEGER, INTEGER);
+DROP PROCEDURE IF EXISTS pr_create_match(TEXT, TEXT, TEXT, INTEGER);
+DROP PROCEDURE IF EXISTS pr_delete_tournament(INTEGER);
+DROP PROCEDURE IF EXISTS pr_delete_tournament(TEXT);
+DROP PROCEDURE IF EXISTS pr_update_match_schedule(INTEGER, TIMESTAMP);
+DROP PROCEDURE IF EXISTS pr_register_user(TEXT, TEXT, INTEGER);
+DROP PROCEDURE IF EXISTS pr_get_user_id_by_username(TEXT);
+DROP PROCEDURE IF EXISTS pr_get_team_id_by_name(TEXT);
+DROP PROCEDURE IF EXISTS pr_get_tournament_id_by_name(TEXT);
+
+CREATE OR REPLACE FUNCTION fn_user_id_by_username(p_username TEXT)
 RETURNS INTEGER
 LANGUAGE plpgsql
 STABLE
@@ -9,8 +28,7 @@ AS $$
 DECLARE
     v_user_id INTEGER;
 BEGIN
-    SELECT id
-    INTO v_user_id
+    SELECT id INTO v_user_id
     FROM users
     WHERE username = p_username;
 
@@ -22,9 +40,7 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION fn_team_id_by_name(
-    p_team_name TEXT
-)
+CREATE OR REPLACE FUNCTION fn_team_id_by_name(p_team_name TEXT)
 RETURNS INTEGER
 LANGUAGE plpgsql
 STABLE
@@ -32,8 +48,7 @@ AS $$
 DECLARE
     v_team_id INTEGER;
 BEGIN
-    SELECT id
-    INTO v_team_id
+    SELECT id INTO v_team_id
     FROM teams
     WHERE name = p_team_name;
 
@@ -45,9 +60,7 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION fn_tournament_id_by_name(
-    p_tournament_name TEXT
-)
+CREATE OR REPLACE FUNCTION fn_tournament_id_by_name(p_tournament_name TEXT)
 RETURNS INTEGER
 LANGUAGE plpgsql
 STABLE
@@ -56,8 +69,7 @@ DECLARE
     v_tournament_id INTEGER;
 BEGIN
     BEGIN
-        SELECT id
-        INTO STRICT v_tournament_id
+        SELECT id INTO STRICT v_tournament_id
         FROM tournaments
         WHERE name = p_tournament_name;
     EXCEPTION
@@ -71,14 +83,28 @@ BEGIN
 END;
 $$;
 
+-- User functions
+DROP FUNCTION IF EXISTS fn_register_user(TEXT, TEXT, INTEGER);
+CREATE FUNCTION fn_register_user(
+    p_username TEXT,
+    p_password TEXT,
+    p_mmr_point INTEGER
+)
+RETURNS TABLE(id INTEGER, username VARCHAR, password VARCHAR, mmr_point INTEGER)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    INSERT INTO users (username, password, mmr_point)
+    VALUES (p_username, p_password, p_mmr_point)
+    RETURNING users.id, users.username, users.password, users.mmr_point;
+END;
+$$;
+
 -- Team functions
 DROP FUNCTION IF EXISTS fn_create_team(TEXT, INTEGER);
 DROP FUNCTION IF EXISTS fn_create_team(TEXT, TEXT);
-
-CREATE FUNCTION fn_create_team(
-    p_name TEXT,
-    p_captain_username TEXT
-)
+CREATE FUNCTION fn_create_team(p_name TEXT, p_captain_username TEXT)
 RETURNS TABLE(id INTEGER, name VARCHAR, captain_id INTEGER)
 LANGUAGE plpgsql
 AS $$
@@ -90,11 +116,8 @@ BEGIN
 END;
 $$;
 
--- Returns FALSE when the player is already a member.
-CREATE OR REPLACE FUNCTION fn_add_team_member(
-    p_team_id INTEGER,
-    p_user_id INTEGER
-)
+DROP FUNCTION IF EXISTS fn_add_team_member(INTEGER, INTEGER);
+CREATE FUNCTION fn_add_team_member(p_team_id INTEGER, p_user_id INTEGER)
 RETURNS BOOLEAN
 LANGUAGE plpgsql
 AS $$
@@ -114,35 +137,21 @@ BEGIN
 END;
 $$;
 
--- Returns FALSE when the player is not a member.
-CREATE OR REPLACE FUNCTION fn_remove_team_member(
-    p_team_id INTEGER,
-    p_user_id INTEGER
-)
+DROP FUNCTION IF EXISTS fn_remove_team_member(INTEGER, INTEGER);
+CREATE FUNCTION fn_remove_team_member(p_team_id INTEGER, p_user_id INTEGER)
 RETURNS BOOLEAN
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM team_members
-        WHERE team_id = p_team_id AND user_id = p_user_id
-    ) THEN
-        RETURN FALSE;
-    END IF;
-
     DELETE FROM team_members
     WHERE team_id = p_team_id AND user_id = p_user_id;
 
-    RETURN TRUE;
+    RETURN FOUND;
 END;
 $$;
 
--- The new captain must already be a team member.
-CREATE OR REPLACE FUNCTION fn_transfer_captain(
-    p_team_id INTEGER,
-    p_new_captain_id INTEGER
-)
+DROP FUNCTION IF EXISTS fn_transfer_captain(INTEGER, INTEGER);
+CREATE FUNCTION fn_transfer_captain(p_team_id INTEGER, p_new_captain_id INTEGER)
 RETURNS BOOLEAN
 LANGUAGE plpgsql
 AS $$
@@ -159,13 +168,12 @@ BEGIN
     SET captain_id = p_new_captain_id
     WHERE id = p_team_id;
 
-    RETURN TRUE;
+    RETURN FOUND;
 END;
 $$;
 
 -- Tournament functions
 DROP FUNCTION IF EXISTS fn_create_tournament(TEXT);
-
 CREATE FUNCTION fn_create_tournament(p_name TEXT)
 RETURNS TABLE(id INTEGER, name VARCHAR, status VARCHAR)
 LANGUAGE plpgsql
@@ -178,8 +186,38 @@ BEGIN
 END;
 $$;
 
+DROP FUNCTION IF EXISTS fn_register_team_to_tournament(INTEGER, INTEGER);
+CREATE FUNCTION fn_register_team_to_tournament(
+    p_tournament_id INTEGER,
+    p_team_id INTEGER
+)
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    INSERT INTO tournament_registrations (tournament_id, team_id)
+    VALUES (p_tournament_id, p_team_id);
+END;
+$$;
+
+DROP FUNCTION IF EXISTS fn_delete_tournament(INTEGER);
+CREATE FUNCTION fn_delete_tournament(p_tournament_id INTEGER)
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    DELETE FROM tournaments
+    WHERE id = p_tournament_id;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Turnamen dengan ID % tidak ditemukan', p_tournament_id;
+    END IF;
+END;
+$$;
+
 -- Match functions
-CREATE OR REPLACE FUNCTION fn_create_match(
+DROP FUNCTION IF EXISTS fn_create_match(INTEGER, INTEGER, INTEGER, INTEGER);
+CREATE FUNCTION fn_create_match(
     p_tournament_id INTEGER,
     p_team_a_id INTEGER,
     p_team_b_id INTEGER,
@@ -194,8 +232,8 @@ BEGIN
 END;
 $$;
 
--- Returns FALSE when the match does not exist.
-CREATE OR REPLACE FUNCTION fn_update_match_schedule(
+DROP FUNCTION IF EXISTS fn_update_match_schedule(INTEGER, TIMESTAMP);
+CREATE FUNCTION fn_update_match_schedule(
     p_match_id INTEGER,
     p_schedule_time TIMESTAMP
 )

@@ -9,7 +9,7 @@ REST API untuk mengelola player, tim, turnamen, dan jadwal pertandingan e-sport.
 - Pembuatan turnamen dan pendaftaran tim.
 - Pembuatan pertandingan serta pengaturan jadwal.
 - Migrasi database otomatis saat aplikasi dijalankan.
-- Pembuatan tim dan turnamen menggunakan stored procedure PostgreSQL dengan transaksi di sisi database.
+- Operasi tulis pengguna, tim, turnamen, dan pertandingan menggunakan stored procedure PostgreSQL.
 
 ## Persyaratan
 
@@ -88,11 +88,9 @@ Invoke-RestMethod `
 
 ## Database
 
-File migrasi di `migrations/` dijalankan berurutan. Saat API dijalankan, SQLx menerapkan migrasi yang belum terpasang. Untuk menjalankannya secara manual gunakan `sqlx migrate run`.
+File migrasi di `migrations/` dijalankan berurutan. Folder tetap flat agar kompatibel dengan SQLx; indeks dan ringkasan migrasi tersedia di [`migrations/README.md`](./migrations/README.md). Saat API dijalankan, SQLx menerapkan migrasi yang belum terpasang. Untuk menjalankannya secara manual gunakan `sqlx migrate run`.
 
-Migrasi `008_add_procedure_indexes.sql` menambahkan indeks untuk pencarian jadwal pertandingan dan kolom foreign key yang digunakan saat mengelola anggota, pendaftaran, serta penghapusan data terkait. Constraint unik pada pasangan anggota tim dan pendaftaran turnamen sudah menyediakan indeks untuk pemeriksaan duplikasi. Migrasi `009_lookup_ids_by_names.sql` menambahkan function pencarian ID melalui username/nama, indeks nama turnamen, dan membuat prosedur terkait menerima username/nama alih-alih ID.
-
-Stored procedure `pr_create_team` dan `pr_create_tournament` menjalankan `COMMIT` di database setelah insert berhasil. Endpoint API memanggil procedure tersebut melalui `CALL`.
+Migrasi `008_add_procedure_indexes.sql` menambahkan indeks untuk pencarian jadwal pertandingan dan kolom foreign key yang digunakan saat mengelola anggota, pendaftaran, serta penghapusan data terkait. Constraint unik pada pasangan anggota tim dan pendaftaran turnamen sudah menyediakan indeks untuk pemeriksaan duplikasi. Migrasi `009_lookup_ids_by_names.sql` menambahkan indeks nama turnamen dan mengubah prosedur terkait agar menerima username/nama alih-alih ID. Migrasi `010_wrap_business_functions_with_procedures.sql` mempertahankan fungsi bisnis dan membungkusnya dengan stored procedure, termasuk prosedur registrasi pengguna. Endpoint API memanggil prosedur melalui `CALL`; pembacaan tetap menggunakan `SELECT` pada tabel atau view. Fungsi trigger tetap digunakan karena PostgreSQL mewajibkannya untuk menjalankan trigger.
 
 ## CI
 

@@ -1,15 +1,79 @@
--- Hapus signature lama yang masih menggunakan ID.
+-- Hapus signature lama yang menerima ID secara langsung.
 DROP PROCEDURE IF EXISTS pr_create_team(TEXT, INTEGER);
 DROP PROCEDURE IF EXISTS pr_create_team(TEXT, TEXT);
 DROP PROCEDURE IF EXISTS pr_create_tournament(TEXT);
 DROP PROCEDURE IF EXISTS pr_register_team_to_tournament(INTEGER, INTEGER);
+DROP PROCEDURE IF EXISTS pr_register_team_to_tournament(TEXT, TEXT);
 DROP PROCEDURE IF EXISTS pr_add_team_member(INTEGER, INTEGER);
+DROP PROCEDURE IF EXISTS pr_add_team_member(TEXT, TEXT);
 DROP PROCEDURE IF EXISTS pr_remove_team_member(INTEGER, INTEGER);
+DROP PROCEDURE IF EXISTS pr_remove_team_member(TEXT, TEXT);
 DROP PROCEDURE IF EXISTS pr_transfer_captain(INTEGER, INTEGER);
+DROP PROCEDURE IF EXISTS pr_transfer_captain(TEXT, TEXT);
 DROP PROCEDURE IF EXISTS pr_create_match(INTEGER, INTEGER, INTEGER, INTEGER);
+DROP PROCEDURE IF EXISTS pr_create_match(TEXT, TEXT, TEXT, INTEGER);
 DROP PROCEDURE IF EXISTS pr_delete_tournament(INTEGER);
+DROP PROCEDURE IF EXISTS pr_delete_tournament(TEXT);
+DROP PROCEDURE IF EXISTS pr_update_match_schedule(INTEGER, TIMESTAMP);
+DROP PROCEDURE IF EXISTS pr_register_user(TEXT, TEXT, INTEGER);
+DROP PROCEDURE IF EXISTS pr_get_user_id_by_username(TEXT);
+DROP PROCEDURE IF EXISTS pr_get_team_id_by_name(TEXT);
+DROP PROCEDURE IF EXISTS pr_get_tournament_id_by_name(TEXT);
 
--- Prosedur tim
+-- Lookup wrappers
+CREATE PROCEDURE pr_get_user_id_by_username(
+    IN p_username TEXT,
+    OUT user_id INTEGER
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    user_id := fn_user_id_by_username(p_username);
+END;
+$$;
+
+CREATE PROCEDURE pr_get_team_id_by_name(
+    IN p_team_name TEXT,
+    OUT team_id INTEGER
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    team_id := fn_team_id_by_name(p_team_name);
+END;
+$$;
+
+CREATE PROCEDURE pr_get_tournament_id_by_name(
+    IN p_tournament_name TEXT,
+    OUT tournament_id INTEGER
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    tournament_id := fn_tournament_id_by_name(p_tournament_name);
+END;
+$$;
+
+-- Prosedur pengguna membungkus function registrasi pengguna.
+CREATE PROCEDURE pr_register_user(
+    IN p_username TEXT,
+    IN p_password TEXT,
+    IN p_mmr_point INTEGER,
+    OUT id INTEGER,
+    OUT username VARCHAR,
+    OUT password VARCHAR,
+    OUT mmr_point INTEGER
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    SELECT created_user.id, created_user.username, created_user.password, created_user.mmr_point
+    INTO id, username, password, mmr_point
+    FROM fn_register_user(p_username, p_password, p_mmr_point) AS created_user;
+END;
+$$;
+
+-- Prosedur tim membungkus function operasi tim.
 CREATE PROCEDURE pr_create_team(
     IN p_name TEXT,
     IN p_captain_username TEXT,
@@ -20,21 +84,13 @@ CREATE PROCEDURE pr_create_team(
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    SELECT
-        created_team.id,
-        created_team.name,
-        created_team.captain_id
+    SELECT created_team.id, created_team.name, created_team.captain_id
     INTO id, name, captain_id
     FROM fn_create_team(p_name, p_captain_username) AS created_team;
-
-    COMMIT;
 END;
 $$;
 
-CREATE OR REPLACE PROCEDURE pr_add_team_member(
-    p_team_name TEXT,
-    p_username TEXT
-)
+CREATE PROCEDURE pr_add_team_member(IN p_team_name TEXT, IN p_username TEXT)
 LANGUAGE plpgsql
 AS $$
 BEGIN
@@ -42,18 +98,12 @@ BEGIN
         fn_team_id_by_name(p_team_name),
         fn_user_id_by_username(p_username)
     ) THEN
-        RAISE EXCEPTION
-            'Player "%" sudah menjadi anggota tim "%"',
-            p_username,
-            p_team_name;
+        RAISE EXCEPTION 'Player "%" sudah menjadi anggota tim "%"', p_username, p_team_name;
     END IF;
 END;
 $$;
 
-CREATE OR REPLACE PROCEDURE pr_remove_team_member(
-    p_team_name TEXT,
-    p_username TEXT
-)
+CREATE PROCEDURE pr_remove_team_member(IN p_team_name TEXT, IN p_username TEXT)
 LANGUAGE plpgsql
 AS $$
 BEGIN
@@ -61,17 +111,14 @@ BEGIN
         fn_team_id_by_name(p_team_name),
         fn_user_id_by_username(p_username)
     ) THEN
-        RAISE EXCEPTION
-            'Player "%" bukan anggota tim "%"',
-            p_username,
-            p_team_name;
+        RAISE EXCEPTION 'Player "%" bukan anggota tim "%"', p_username, p_team_name;
     END IF;
 END;
 $$;
 
-CREATE OR REPLACE PROCEDURE pr_transfer_captain(
-    p_team_name TEXT,
-    p_new_captain_username TEXT
+CREATE PROCEDURE pr_transfer_captain(
+    IN p_team_name TEXT,
+    IN p_new_captain_username TEXT
 )
 LANGUAGE plpgsql
 AS $$
@@ -88,7 +135,7 @@ BEGIN
 END;
 $$;
 
--- Prosedur turnamen
+-- Prosedur turnamen membungkus function operasi turnamen.
 CREATE PROCEDURE pr_create_tournament(
     IN p_name TEXT,
     OUT id INTEGER,
@@ -98,54 +145,40 @@ CREATE PROCEDURE pr_create_tournament(
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    INSERT INTO tournaments (name, total_slots, available_slots, status)
-    VALUES (p_name, 0, 0, 'open')
-    RETURNING
-        tournaments.id,
-        tournaments.name,
-        tournaments.status
-    INTO id, name, status;
-
-    COMMIT;
+    SELECT created_tournament.id, created_tournament.name, created_tournament.status
+    INTO id, name, status
+    FROM fn_create_tournament(p_name) AS created_tournament;
 END;
 $$;
 
-CREATE OR REPLACE PROCEDURE pr_register_team_to_tournament(
-    p_tournament_name TEXT,
-    p_team_name TEXT
+CREATE PROCEDURE pr_register_team_to_tournament(
+    IN p_tournament_name TEXT,
+    IN p_team_name TEXT
 )
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    INSERT INTO tournament_registrations (tournament_id, team_id)
-    VALUES (
+    PERFORM fn_register_team_to_tournament(
         fn_tournament_id_by_name(p_tournament_name),
         fn_team_id_by_name(p_team_name)
     );
 END;
 $$;
 
-CREATE OR REPLACE PROCEDURE pr_delete_tournament(
-    p_tournament_name TEXT
-)
+CREATE PROCEDURE pr_delete_tournament(IN p_tournament_name TEXT)
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    DELETE FROM tournaments
-    WHERE id = fn_tournament_id_by_name(p_tournament_name);
-
-    IF NOT FOUND THEN
-        RAISE EXCEPTION 'Turnamen "%" tidak ditemukan', p_tournament_name;
-    END IF;
+    PERFORM fn_delete_tournament(fn_tournament_id_by_name(p_tournament_name));
 END;
 $$;
 
--- Prosedur pertandingan
-CREATE OR REPLACE PROCEDURE pr_create_match(
-    p_tournament_name TEXT,
-    p_team_a_name TEXT,
-    p_team_b_name TEXT,
-    p_round_number INTEGER
+-- Prosedur pertandingan membungkus function operasi pertandingan.
+CREATE PROCEDURE pr_create_match(
+    IN p_tournament_name TEXT,
+    IN p_team_a_name TEXT,
+    IN p_team_b_name TEXT,
+    IN p_round_number INTEGER
 )
 LANGUAGE plpgsql
 AS $$
@@ -162,14 +195,12 @@ BEGIN
         END,
         p_round_number
     );
-
-    COMMIT;
 END;
 $$;
 
-CREATE OR REPLACE PROCEDURE pr_update_match_schedule(
-    p_match_id INTEGER,
-    p_schedule_time TIMESTAMP
+CREATE PROCEDURE pr_update_match_schedule(
+    IN p_match_id INTEGER,
+    IN p_schedule_time TIMESTAMP
 )
 LANGUAGE plpgsql
 AS $$

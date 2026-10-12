@@ -14,7 +14,7 @@ pub struct CreateUserDto {
     pub mmr_point: Option<i32>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, sqlx::FromRow)]
 pub struct UserResponse {
     pub id: i32,
     pub username: String,
@@ -26,19 +26,12 @@ pub async fn register_user(
     State(pool): State<PgPool>,
     Json(payload): Json<CreateUserDto>,
 ) -> impl IntoResponse {
-    println!(
-        "📥 Ada pendaftar baru! Username: {}, Password: {}, MMR: {}",
-        payload.username,
-        payload.password,
-        payload.mmr_point.unwrap_or(0)
-    );
-    let result = sqlx::query_as!(
-        UserResponse,
-        "INSERT INTO users (username, password, mmr_point) VALUES ($1, $2, $3) RETURNING id, username, password, mmr_point",
-        payload.username,
-        payload.password,
-        payload.mmr_point.unwrap_or(0)
+    let result = sqlx::query_as::<_, UserResponse>(
+        "CALL pr_register_user($1, $2, $3, NULL, NULL, NULL, NULL)",
     )
+    .bind(payload.username)
+    .bind(payload.password)
+    .bind(payload.mmr_point.unwrap_or(0))
     .fetch_one(&pool)
     .await;
 
