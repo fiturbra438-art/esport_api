@@ -1,4 +1,4 @@
--- 1. Tabel Users
+-- Users
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
     username VARCHAR(255) UNIQUE NOT NULL,
@@ -7,7 +7,7 @@ CREATE TABLE users (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 2. Tabel Tournaments
+-- Tournaments
 CREATE TABLE tournaments (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
@@ -17,7 +17,10 @@ CREATE TABLE tournaments (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 3. Tabel Teams
+CREATE INDEX idx_tournaments_name
+    ON tournaments (name);
+
+-- Teams
 CREATE TABLE teams (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) UNIQUE NOT NULL,
@@ -25,7 +28,7 @@ CREATE TABLE teams (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 4. Tabel Team Members
+-- Team members
 CREATE TABLE team_members (
     id SERIAL PRIMARY KEY,
     team_id INTEGER REFERENCES teams(id) ON DELETE CASCADE,
@@ -34,7 +37,7 @@ CREATE TABLE team_members (
     joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 5. Tabel Tournament Registrations
+-- Tournament registrations
 CREATE TABLE tournament_registrations (
     id SERIAL PRIMARY KEY,
     tournament_id INTEGER REFERENCES tournaments(id) ON DELETE CASCADE,
@@ -43,7 +46,7 @@ CREATE TABLE tournament_registrations (
     UNIQUE (tournament_id, team_id)
 );
 
--- 6. Tabel Matches (Jadwal & Skor Pertandingan)
+-- Matches
 CREATE TABLE matches (
     id SERIAL PRIMARY KEY,
     tournament_id INTEGER REFERENCES tournaments(id) ON DELETE CASCADE,
@@ -54,3 +57,25 @@ CREATE TABLE matches (
     round_number INTEGER,
     schedule_time TIMESTAMP
 );
+
+-- Indeks untuk pencarian prosedur, jadwal, dan aksi foreign key.
+CREATE INDEX idx_teams_captain_id
+    ON teams (captain_id);
+
+CREATE INDEX idx_team_members_user_id
+    ON team_members (user_id);
+
+CREATE INDEX idx_tournament_registrations_team_id
+    ON tournament_registrations (team_id);
+
+CREATE INDEX idx_matches_tournament_round
+    ON matches (tournament_id, round_number, id);
+
+CREATE INDEX idx_matches_team_a_id
+    ON matches (team_a_id);
+
+CREATE INDEX idx_matches_team_b_id
+    ON matches (team_b_id);
+
+CREATE INDEX idx_matches_winner_id
+    ON matches (winner_id);

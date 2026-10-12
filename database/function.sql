@@ -1,20 +1,100 @@
--- FUNCTION: membuat tim sekaligus mendaftarkan kapten
-DROP FUNCTION IF EXISTS fn_create_team(TEXT, INTEGER);
+-- Lookup functions
+CREATE OR REPLACE FUNCTION fn_user_id_by_username(
+    p_username TEXT
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+STABLE
+AS $$
+DECLARE
+    v_user_id INTEGER;
+BEGIN
+    SELECT id
+    INTO v_user_id
+    FROM users
+    WHERE username = p_username;
 
-CREATE FUNCTION fn_create_team(p_name TEXT, p_captain_id INTEGER)
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Player dengan username "%" tidak ditemukan', p_username;
+    END IF;
+
+    RETURN v_user_id;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION fn_team_id_by_name(
+    p_team_name TEXT
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+STABLE
+AS $$
+DECLARE
+    v_team_id INTEGER;
+BEGIN
+    SELECT id
+    INTO v_team_id
+    FROM teams
+    WHERE name = p_team_name;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Tim dengan nama "%" tidak ditemukan', p_team_name;
+    END IF;
+
+    RETURN v_team_id;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION fn_tournament_id_by_name(
+    p_tournament_name TEXT
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+STABLE
+AS $$
+DECLARE
+    v_tournament_id INTEGER;
+BEGIN
+    BEGIN
+        SELECT id
+        INTO STRICT v_tournament_id
+        FROM tournaments
+        WHERE name = p_tournament_name;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RAISE EXCEPTION 'Turnamen dengan nama "%" tidak ditemukan', p_tournament_name;
+        WHEN TOO_MANY_ROWS THEN
+            RAISE EXCEPTION 'Nama turnamen "%" tidak unik', p_tournament_name;
+    END;
+
+    RETURN v_tournament_id;
+END;
+$$;
+
+-- Team functions
+DROP FUNCTION IF EXISTS fn_create_team(TEXT, INTEGER);
+DROP FUNCTION IF EXISTS fn_create_team(TEXT, TEXT);
+
+CREATE FUNCTION fn_create_team(
+    p_name TEXT,
+    p_captain_username TEXT
+)
 RETURNS TABLE(id INTEGER, name VARCHAR, captain_id INTEGER)
 LANGUAGE plpgsql
 AS $$
 BEGIN
     RETURN QUERY
     INSERT INTO teams (name, captain_id)
-    VALUES (p_name, p_captain_id)
+    VALUES (p_name, fn_user_id_by_username(p_captain_username))
     RETURNING teams.id, teams.name, teams.captain_id;
 END;
 $$;
 
--- FUNCTION: join team
-CREATE OR REPLACE FUNCTION fn_add_team_member(p_team_id INTEGER, p_user_id INTEGER)
+-- Returns FALSE when the player is already a member.
+CREATE OR REPLACE FUNCTION fn_add_team_member(
+    p_team_id INTEGER,
+    p_user_id INTEGER
+)
 RETURNS BOOLEAN
 LANGUAGE plpgsql
 AS $$
@@ -34,8 +114,11 @@ BEGIN
 END;
 $$;
 
--- FUNCTION: remove member dari team
-CREATE OR REPLACE FUNCTION fn_remove_team_member(p_team_id INTEGER, p_user_id INTEGER)
+-- Returns FALSE when the player is not a member.
+CREATE OR REPLACE FUNCTION fn_remove_team_member(
+    p_team_id INTEGER,
+    p_user_id INTEGER
+)
 RETURNS BOOLEAN
 LANGUAGE plpgsql
 AS $$
@@ -55,8 +138,11 @@ BEGIN
 END;
 $$;
 
--- FUNCTION: pindah kapten
-CREATE OR REPLACE FUNCTION fn_transfer_captain(p_team_id INTEGER, p_new_captain_id INTEGER)
+-- The new captain must already be a team member.
+CREATE OR REPLACE FUNCTION fn_transfer_captain(
+    p_team_id INTEGER,
+    p_new_captain_id INTEGER
+)
 RETURNS BOOLEAN
 LANGUAGE plpgsql
 AS $$
@@ -77,7 +163,7 @@ BEGIN
 END;
 $$;
 
--- FUNCTION: buat turnamen
+-- Tournament functions
 DROP FUNCTION IF EXISTS fn_create_tournament(TEXT);
 
 CREATE FUNCTION fn_create_tournament(p_name TEXT)
@@ -92,7 +178,7 @@ BEGIN
 END;
 $$;
 
--- FUNCTION: buat match
+-- Match functions
 CREATE OR REPLACE FUNCTION fn_create_match(
     p_tournament_id INTEGER,
     p_team_a_id INTEGER,
@@ -108,8 +194,11 @@ BEGIN
 END;
 $$;
 
--- FUNCTION: update jadwal match
-CREATE OR REPLACE FUNCTION fn_update_match_schedule(p_match_id INTEGER, p_schedule_time TIMESTAMP)
+-- Returns FALSE when the match does not exist.
+CREATE OR REPLACE FUNCTION fn_update_match_schedule(
+    p_match_id INTEGER,
+    p_schedule_time TIMESTAMP
+)
 RETURNS BOOLEAN
 LANGUAGE plpgsql
 AS $$

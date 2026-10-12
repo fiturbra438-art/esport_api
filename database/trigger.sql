@@ -1,4 +1,4 @@
--- Trigger: captain otomatis masuk ke team_members
+-- Team triggers
 CREATE OR REPLACE FUNCTION fn_sync_captain_membership()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -10,7 +10,8 @@ BEGIN
         WHERE NOT EXISTS (
             SELECT 1
             FROM team_members
-            WHERE team_id = NEW.id AND user_id = NEW.captain_id
+            WHERE team_id = NEW.id
+              AND user_id = NEW.captain_id
         );
     END IF;
 
@@ -19,11 +20,13 @@ END;
 $$;
 
 CREATE OR REPLACE TRIGGER trg_sync_captain_membership
-AFTER INSERT OR UPDATE OF captain_id ON teams
+AFTER INSERT OR UPDATE OF captain_id
+ON teams
 FOR EACH ROW
 EXECUTE FUNCTION fn_sync_captain_membership();
 
--- Trigger: mencegah duplikasi pendaftaran turnamen
+-- Registration triggers
+-- The UNIQUE constraint remains the final protection against duplicate entries.
 CREATE OR REPLACE FUNCTION fn_prevent_duplicate_registration()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -32,7 +35,8 @@ BEGIN
     IF EXISTS (
         SELECT 1
         FROM tournament_registrations
-        WHERE tournament_id = NEW.tournament_id AND team_id = NEW.team_id
+        WHERE tournament_id = NEW.tournament_id
+          AND team_id = NEW.team_id
     ) THEN
         RAISE EXCEPTION 'Tim sudah terdaftar pada turnamen ini';
     END IF;
@@ -42,11 +46,12 @@ END;
 $$;
 
 CREATE OR REPLACE TRIGGER trg_prevent_duplicate_registration
-BEFORE INSERT ON tournament_registrations
+BEFORE INSERT
+ON tournament_registrations
 FOR EACH ROW
 EXECUTE FUNCTION fn_prevent_duplicate_registration();
 
--- Trigger: update available_slots otomatis saat pendaftaran
+-- Keep the registration count in sync.
 CREATE OR REPLACE FUNCTION fn_update_tournament_slots_on_register()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -61,11 +66,11 @@ END;
 $$;
 
 CREATE OR REPLACE TRIGGER trg_update_tournament_slots_on_register
-AFTER INSERT ON tournament_registrations
+AFTER INSERT
+ON tournament_registrations
 FOR EACH ROW
 EXECUTE FUNCTION fn_update_tournament_slots_on_register();
 
--- Trigger: update available_slots otomatis saat batal register
 CREATE OR REPLACE FUNCTION fn_update_tournament_slots_on_delete()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -80,6 +85,7 @@ END;
 $$;
 
 CREATE OR REPLACE TRIGGER trg_update_tournament_slots_on_delete
-AFTER DELETE ON tournament_registrations
+AFTER DELETE
+ON tournament_registrations
 FOR EACH ROW
 EXECUTE FUNCTION fn_update_tournament_slots_on_delete();

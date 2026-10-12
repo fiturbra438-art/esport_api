@@ -63,16 +63,16 @@ Semua body request menggunakan JSON.
 | --- | --- | --- |
 | `POST` | `/api/users` | `{"username":"player1","password":"secret","mmr_point":1000}` |
 | `GET` | `/api/users/{id}` | - |
-| `POST` | `/api/teams` | `{"name":"Team Alpha","captain_id":1}` |
+| `POST` | `/api/teams` | `{"name":"Team Alpha","captain_username":"player1"}` |
 | `GET` | `/api/teams/{id}` | - |
-| `POST` | `/api/teams/join` | `{"team_id":1,"user_id":2}` |
-| `DELETE` | `/api/teams/members` | `{"team_id":1,"user_id":2}` |
-| `PUT` | `/api/teams/captain` | `{"team_id":1,"new_captain_id":2}` |
+| `POST` | `/api/teams/join` | `{"team_name":"Team Alpha","username":"player2"}` |
+| `DELETE` | `/api/teams/members` | `{"team_name":"Team Alpha","username":"player2"}` |
+| `PUT` | `/api/teams/captain` | `{"team_name":"Team Alpha","new_captain_username":"player2"}` |
 | `POST` | `/api/tournaments` | `{"name":"Summer Cup"}` |
 | `GET` | `/api/tournaments` | - |
-| `DELETE` | `/api/tournaments/{id}` | - |
-| `POST` | `/api/tournaments/register` | `{"tournament_id":1,"team_id":1}` |
-| `POST` | `/api/matches` | `{"tournament_id":1,"team1_id":1,"team2_id":2,"round_number":1}` |
+| `DELETE` | `/api/tournaments/{name}` | - |
+| `POST` | `/api/tournaments/register` | `{"tournament_name":"Summer Cup","team_name":"Team Alpha"}` |
+| `POST` | `/api/matches` | `{"tournament_name":"Summer Cup","team1_name":"Team Alpha","team2_name":"Team Beta","round_number":1}` |
 | `GET` | `/api/tournaments/{id}/matches` | - |
 | `PUT` | `/api/matches/{id}/schedule` | `{"schedule_time":"2026-10-01 19:30:00"}` |
 
@@ -89,6 +89,8 @@ Invoke-RestMethod `
 ## Database
 
 File migrasi di `migrations/` dijalankan berurutan. Saat API dijalankan, SQLx menerapkan migrasi yang belum terpasang. Untuk menjalankannya secara manual gunakan `sqlx migrate run`.
+
+Migrasi `008_add_procedure_indexes.sql` menambahkan indeks untuk pencarian jadwal pertandingan dan kolom foreign key yang digunakan saat mengelola anggota, pendaftaran, serta penghapusan data terkait. Constraint unik pada pasangan anggota tim dan pendaftaran turnamen sudah menyediakan indeks untuk pemeriksaan duplikasi. Migrasi `009_lookup_ids_by_names.sql` menambahkan function pencarian ID melalui username/nama, indeks nama turnamen, dan membuat prosedur terkait menerima username/nama alih-alih ID.
 
 Stored procedure `pr_create_team` dan `pr_create_tournament` menjalankan `COMMIT` di database setelah insert berhasil. Endpoint API memanggil procedure tersebut melalui `CALL`.
 

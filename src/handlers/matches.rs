@@ -12,9 +12,9 @@ use super::response::{error_response, message};
 
 #[derive(Deserialize)]
 pub struct CreateMatchDto {
-    pub tournament_id: i32,
-    pub team1_id: Option<i32>,
-    pub team2_id: Option<i32>,
+    pub tournament_name: String,
+    pub team1_name: Option<String>,
+    pub team2_name: Option<String>,
     pub round_number: i32,
 }
 
@@ -22,15 +22,13 @@ pub async fn create_match(
     State(pool): State<PgPool>,
     Json(payload): Json<CreateMatchDto>,
 ) -> impl IntoResponse {
-    if let Err(error) = sqlx::query!(
-        "CALL pr_create_match($1, $2, $3, $4)",
-        payload.tournament_id,
-        payload.team1_id,
-        payload.team2_id,
-        payload.round_number
-    )
-    .execute(&pool)
-    .await
+    if let Err(error) = sqlx::query("CALL pr_create_match($1, $2, $3, $4)")
+        .bind(payload.tournament_name)
+        .bind(payload.team1_name)
+        .bind(payload.team2_name)
+        .bind(payload.round_number)
+        .execute(&pool)
+        .await
     {
         return error_response(
             StatusCode::INTERNAL_SERVER_ERROR,

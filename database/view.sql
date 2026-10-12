@@ -1,34 +1,45 @@
--- VIEW: daftar turnamen
+-- Tournament views
 CREATE OR REPLACE VIEW vw_tournaments AS
-SELECT id, name, status, total_slots, available_slots, created_at
-FROM tournaments;
+SELECT
+    t.id,
+    t.name,
+    t.status,
+    t.total_slots,
+    t.available_slots,
+    t.created_at
+FROM tournaments AS t;
 
--- VIEW: profil tim dan anggotanya
+-- Team roster, including teams without members.
 CREATE OR REPLACE VIEW vw_team_members AS
 SELECT
-    teams.id AS team_id,
-    teams.name AS team_name,
-    teams.captain_id,
-    users.id AS user_id,
-    users.username,
-    team_members.status,
-    team_members.joined_at
-FROM teams
-LEFT JOIN team_members ON team_members.team_id = teams.id
-LEFT JOIN users ON users.id = team_members.user_id;
+    t.id AS team_id,
+    t.name AS team_name,
+    t.captain_id,
+    u.id AS user_id,
+    u.username,
+    tm.status,
+    tm.joined_at
+FROM teams AS t
+LEFT JOIN team_members AS tm
+    ON tm.team_id = t.id
+LEFT JOIN users AS u
+    ON u.id = tm.user_id;
 
--- VIEW: jadwal pertandingan dengan nama tim
+-- Match schedule with participating teams and winner.
 CREATE OR REPLACE VIEW vw_match_schedule AS
 SELECT
-    matches.id,
-    matches.tournament_id,
-    matches.round_number,
-    matches.schedule_time,
-    matches.status,
+    m.id,
+    m.tournament_id,
+    m.round_number,
+    m.schedule_time,
+    m.status,
     t1.name AS team1_name,
     t2.name AS team2_name,
     winner.name AS winner_name
-FROM matches
-LEFT JOIN teams t1 ON t1.id = matches.team_a_id
-LEFT JOIN teams t2 ON t2.id = matches.team_b_id
-LEFT JOIN teams winner ON winner.id = matches.winner_id;
+FROM matches AS m
+LEFT JOIN teams AS t1
+    ON t1.id = m.team_a_id
+LEFT JOIN teams AS t2
+    ON t2.id = m.team_b_id
+LEFT JOIN teams AS winner
+    ON winner.id = m.winner_id;

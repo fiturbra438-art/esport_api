@@ -12,7 +12,7 @@ use super::response::{error_response, message};
 #[derive(Deserialize)]
 pub struct CreateTeamDto {
     pub name: String,
-    pub captain_id: i32,
+    pub captain_username: String,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -26,22 +26,21 @@ pub async fn create_team(
     State(pool): State<PgPool>,
     Json(payload): Json<CreateTeamDto>,
 ) -> impl IntoResponse {
-    let team = match sqlx::query_as::<_, TeamResponse>(
-        "CALL pr_create_team($1, $2, NULL, NULL, NULL)",
-    )
-    .bind(payload.name)
-    .bind(payload.captain_id)
-    .fetch_one(&pool)
-    .await
-    {
-        Ok(team) => team,
-        Err(error) => {
-            return error_response(
-                StatusCode::BAD_REQUEST,
-                format!("Gagal membuat tim (mungkin nama tim sudah dipakai): {error}"),
-            );
-        }
-    };
+    let team =
+        match sqlx::query_as::<_, TeamResponse>("CALL pr_create_team($1, $2, NULL, NULL, NULL)")
+            .bind(payload.name)
+            .bind(payload.captain_username)
+            .fetch_one(&pool)
+            .await
+        {
+            Ok(team) => team,
+            Err(error) => {
+                return error_response(
+                    StatusCode::BAD_REQUEST,
+                    format!("Gagal membuat tim (mungkin nama tim sudah dipakai): {error}"),
+                );
+            }
+        };
 
     (
         StatusCode::CREATED,
@@ -55,21 +54,19 @@ pub async fn create_team(
 
 #[derive(Deserialize)]
 pub struct JoinTeamDto {
-    pub team_id: i32,
-    pub user_id: i32,
+    pub team_name: String,
+    pub username: String,
 }
 
 pub async fn join_team(
     State(pool): State<PgPool>,
     Json(payload): Json<JoinTeamDto>,
 ) -> impl IntoResponse {
-    let result = sqlx::query!(
-        "CALL pr_add_team_member($1, $2)",
-        payload.team_id,
-        payload.user_id
-    )
-    .execute(&pool)
-    .await;
+    let result = sqlx::query("CALL pr_add_team_member($1, $2)")
+        .bind(payload.team_name)
+        .bind(payload.username)
+        .execute(&pool)
+        .await;
 
     match result {
         Ok(_) => message(
@@ -142,21 +139,19 @@ pub async fn get_team_profile(
 
 #[derive(Deserialize)]
 pub struct RemoveMemberDto {
-    pub team_id: i32,
-    pub user_id: i32,
+    pub team_name: String,
+    pub username: String,
 }
 
 pub async fn remove_team_member(
     State(pool): State<PgPool>,
     Json(payload): Json<RemoveMemberDto>,
 ) -> impl IntoResponse {
-    let result = sqlx::query!(
-        "CALL pr_remove_team_member($1, $2)",
-        payload.team_id,
-        payload.user_id
-    )
-    .execute(&pool)
-    .await;
+    let result = sqlx::query("CALL pr_remove_team_member($1, $2)")
+        .bind(payload.team_name)
+        .bind(payload.username)
+        .execute(&pool)
+        .await;
 
     match result {
         Ok(_) => message(StatusCode::OK, "Player berhasil keluar/dihapus dari tim!"),
@@ -169,21 +164,19 @@ pub async fn remove_team_member(
 
 #[derive(Deserialize)]
 pub struct TransferCaptainDto {
-    pub team_id: i32,
-    pub new_captain_id: i32,
+    pub team_name: String,
+    pub new_captain_username: String,
 }
 
 pub async fn transfer_captain(
     State(pool): State<PgPool>,
     Json(payload): Json<TransferCaptainDto>,
 ) -> impl IntoResponse {
-    let result = sqlx::query!(
-        "CALL pr_transfer_captain($1, $2)",
-        payload.team_id,
-        payload.new_captain_id
-    )
-    .execute(&pool)
-    .await;
+    let result = sqlx::query("CALL pr_transfer_captain($1, $2)")
+        .bind(payload.team_name)
+        .bind(payload.new_captain_username)
+        .execute(&pool)
+        .await;
 
     match result {
         Ok(_) => message(

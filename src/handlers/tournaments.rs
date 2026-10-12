@@ -62,21 +62,19 @@ pub async fn get_tournaments(State(pool): State<PgPool>) -> impl IntoResponse {
 
 #[derive(Deserialize)]
 pub struct RegisterTournamentDto {
-    pub tournament_id: i32,
-    pub team_id: i32,
+    pub tournament_name: String,
+    pub team_name: String,
 }
 
 pub async fn register_tournament(
     State(pool): State<PgPool>,
     Json(payload): Json<RegisterTournamentDto>,
 ) -> impl IntoResponse {
-    match sqlx::query!(
-        "CALL pr_register_team_to_tournament($1, $2)",
-        payload.tournament_id,
-        payload.team_id
-    )
-    .execute(&pool)
-    .await
+    match sqlx::query("CALL pr_register_team_to_tournament($1, $2)")
+        .bind(payload.tournament_name)
+        .bind(payload.team_name)
+        .execute(&pool)
+        .await
     {
         Ok(_) => message(
             StatusCode::CREATED,
@@ -93,9 +91,10 @@ pub async fn register_tournament(
 
 pub async fn delete_tournament(
     State(pool): State<PgPool>,
-    Path(tournament_id): Path<i32>,
+    Path(tournament_name): Path<String>,
 ) -> impl IntoResponse {
-    match sqlx::query!("CALL pr_delete_tournament($1)", tournament_id)
+    match sqlx::query("CALL pr_delete_tournament($1)")
+        .bind(tournament_name)
         .execute(&pool)
         .await
     {
