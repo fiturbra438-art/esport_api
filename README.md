@@ -4,6 +4,7 @@ REST API untuk mengelola player, tim, turnamen, dan jadwal pertandingan e-sport.
 
 ## Fitur
 
+- Role `user` dan `admin`; hanya admin dapat membuat atau menghapus turnamen.
 - Registrasi dan profil player.
 - Login dengan JWT Bearer untuk semua operasi yang mengubah data.
 - Validasi input dan password hashing Argon2.
@@ -113,14 +114,34 @@ Semua body request menggunakan JSON.
 | `GET` | `/api/tournaments/{id}/matches` | - |
 | `PUT` | `/api/matches/{id}/schedule` | `{"schedule_time":"2026-10-01 19:30:00"}` |
 
-Contoh membuat turnamen:
+### Menyiapkan akun admin
+
+Daftarkan akun lewat `POST /api/users` seperti pengguna biasa, lalu promosikan
+akun yang dipercaya melalui pgAdmin Query Tool. Pastikan API sudah dijalankan
+setelah perubahan kode agar migrasi 014 menambahkan kolom `role`:
+
+```sql
+UPDATE users
+SET role = 'admin'
+WHERE username = 'username_admin_yang_dipilih'
+RETURNING id, username, role;
+```
+
+Pastikan query mengembalikan tepat satu akun dengan `role = 'admin'`. Registrasi
+publik selalu membuat akun sebagai `user`; role tidak dapat diatur lewat body
+registrasi. Setelah promosi, login ulang agar Postman menggunakan akun admin.
+Untuk mencabut hak admin, ubah role kembali menjadi `user`.
+
+### Membuat turnamen
+
+Pembuatan turnamen hanya bisa dilakukan dengan token akun admin:
 
 ```powershell
 $login = Invoke-RestMethod `
   -Method Post `
   -Uri http://127.0.0.1:8080/api/auth/login `
   -ContentType 'application/json' `
-  -Body '{"username":"player1","password":"contoh-password-kuat"}'
+  -Body '{"username":"username_admin_yang_dipilih","password":"password-admin"}'
 $token = $login.access_token
 
 Invoke-RestMethod `
@@ -131,19 +152,30 @@ Invoke-RestMethod `
   -Body '{"name":"Summer Cup","max_teams":8}'
 ```
 
+Nama turnamen tidak boleh duplikat. Perbandingan mengabaikan huruf besar/kecil
+dan spasi di awal/akhir; contoh `Summer Cup` dan ` summer cup ` dianggap sama.
+Request duplikat menerima HTTP 409. Database menegakkan batas ini dengan unique
+index sehingga request bersamaan juga tidak dapat membuat nama yang sama.
+
 Registrasi dan login bersifat publik. Semua endpoint yang mengubah data
 (pembuatan/pengelolaan tim, turnamen, pertandingan) memerlukan header
 `Authorization: Bearer <access_token>`. Token JWT berlaku selama satu jam.
-Endpoint GET tetap publik. Pendaftaran tim ke turnamen hanya dapat dilakukan
-oleh kapten tim yang sedang didaftarkan. Backend mengambil ID pengguna dari JWT,
-mengunci baris tim selama pemeriksaan dan pendaftaran, serta mengembalikan HTTP
-403 jika pengguna bukan kapten.
+Endpoint GET tetap publik. Pembuatan dan penghapusan turnamen hanya bisa
+dilakukan role `admin`; pengguna biasa menerima HTTP 403. Pendaftaran tim ke
+turnamen hanya dapat dilakukan oleh kapten tim yang sedang didaftarkan.
+Backend mengambil ID pengguna dari JWT, mengunci baris tim selama pemeriksaan
+dan pendaftaran, serta mengembalikan HTTP 403 jika pengguna bukan kapten.
 
 Username registrasi dibatasi 3-32 karakter (huruf, angka, `_`, `-`), password
 12-128 byte, MMR 0-100000, nama resource 1-100 karakter, dan nomor ronde serta
 ID harus positif. `max_teams` wajib berupa bilangan bulat positif. Pendaftaran
 ditolak dengan HTTP 409 ketika kuota turnamen penuh. Error database dicatat di
 log server dan respons hanya berisi pesan umum, bukan detail SQL.
+Setiap endpoint tulis yang memanggil stored procedure menjalankan `CALL` di
+dalam transaksi SQLx dan melakukan commit saat berhasil atau rollback saat
+gagal. Pendaftaran turnamen juga mencakup pemeriksaan kapten dan pendaftaran
+dalam satu transaksi. Di PostgreSQL, satu `CALL` juga atomik secara default;
+transaksi eksplisit memastikan perilaku commit/rollback konsisten di backend.
 
 Kata sandi akun lama yang tersimpan sebagai plaintext tidak dapat login setelah
 hash Argon2 diberlakukan. Saat ini belum ada endpoint reset password, sehingga

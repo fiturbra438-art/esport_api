@@ -35,30 +35,99 @@ pub struct TournamentResponse {
     pub available_slots: i32,
 }
 
+async fn require_admin(pool: &PgPool, claims: &Claims) -> Result<(), axum::response::Response> {
+    let user_id = match claims.sub.parse::<i32>() {
+        Ok(user_id) if user_id > 0 => user_id,
+        _ => {
+            return Err(error_response(
+                StatusCode::UNAUTHORIZED,
+                "Identitas pengguna pada token tidak valid",
+            ));
+        }
+    };
+
+    match sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM users WHERE id = $1 AND role = 'admin')",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await
+    {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(error_response(
+            StatusCode::FORBIDDEN,
+            "Hanya admin yang dapat mengelola turnamen",
+        )),
+        Err(error) => {
+            log_error("verify_tournament_admin", error);
+            Err(error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Gagal memverifikasi hak akses admin",
+            ))
+        }
+    }
+}
+
 pub async fn create_tournament(
     State(pool): State<PgPool>,
+    Extension(claims): Extension<Claims>,
     Json(payload): Json<CreateTournamentDto>,
 ) -> impl IntoResponse {
+    if let Err(response) = require_admin(&pool, &claims).await {
+        return response;
+    }
     if !valid_name(&payload.name) || !valid_max_teams(payload.max_teams) {
         return error_response(
             StatusCode::BAD_REQUEST,
             "Nama turnamen wajib diisi (maksimal 100 karakter) dan max_teams harus lebih dari 0",
         );
     }
+    let mut transaction = match pool.begin().await {
+        Ok(transaction) => transaction,
+        Err(error) => {
+            log_error("create_tournament_begin_transaction", error);
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Gagal memulai transaksi pembuatan turnamen",
+            );
+        }
+    };
     let tournament = match sqlx::query_as::<_, TournamentResponse>(
-        "CALL pr_create_tournament($1, $2, NULL, NULL, NULL, NULL)",
+        "CALL pr_create_tournament($1, $2, NULL, NULL, NULL, NULL, NULL)",
     )
-    .bind(payload.name)
+    .bind(payload.name.trim())
     .bind(payload.max_teams)
-    .fetch_one(&pool)
+    .fetch_one(&mut *transaction)
     .await
     {
         Err(error) => {
+            let duplicate = error
+                .as_database_error()
+                .and_then(|database_error| database_error.code())
+                .is_some_and(|code| code == "23505");
             log_error("create_tournament", error);
-            return error_response(StatusCode::BAD_REQUEST, "Gagal membuat turnamen");
+            if let Err(rollback_error) = transaction.rollback().await {
+                log_error("create_tournament_rollback", rollback_error);
+                return error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Pembuatan turnamen gagal dan transaksi tidak dapat dibatalkan",
+                );
+            }
+            return if duplicate {
+                error_response(StatusCode::CONFLICT, "Nama turnamen sudah digunakan")
+            } else {
+                error_response(StatusCode::BAD_REQUEST, "Gagal membuat turnamen")
+            };
         }
         Ok(tournament) => tournament,
     };
+    if let Err(error) = transaction.commit().await {
+        log_error("create_tournament_commit", error);
+        return error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Gagal menyimpan turnamen",
+        );
+    }
 
     (
         StatusCode::CREATED,
@@ -223,25 +292,55 @@ pub async fn register_tournament(
 
 pub async fn delete_tournament(
     State(pool): State<PgPool>,
+    Extension(claims): Extension<Claims>,
     Path(tournament_name): Path<String>,
 ) -> impl IntoResponse {
+    if let Err(response) = require_admin(&pool, &claims).await {
+        return response;
+    }
     if !valid_name(&tournament_name) {
         return error_response(
             StatusCode::BAD_REQUEST,
             "Nama turnamen wajib diisi (maksimal 100 karakter)",
         );
     }
+    let mut transaction = match pool.begin().await {
+        Ok(transaction) => transaction,
+        Err(error) => {
+            log_error("delete_tournament_begin_transaction", error);
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Gagal memulai transaksi penghapusan turnamen",
+            );
+        }
+    };
     match sqlx::query("CALL pr_delete_tournament($1)")
         .bind(tournament_name)
-        .execute(&pool)
+        .execute(&mut *transaction)
         .await
     {
-        Ok(_) => message(
-            StatusCode::OK,
-            "Turnamen beserta seluruh data pendaftarannya berhasil dihapus!",
-        ),
+        Ok(_) => match transaction.commit().await {
+            Ok(()) => message(
+                StatusCode::OK,
+                "Turnamen beserta seluruh data pendaftarannya berhasil dihapus!",
+            ),
+            Err(error) => {
+                log_error("delete_tournament_commit", error);
+                error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Gagal menyimpan penghapusan turnamen",
+                )
+            }
+        },
         Err(error) => {
             log_error("delete_tournament", error);
+            if let Err(rollback_error) = transaction.rollback().await {
+                log_error("delete_tournament_rollback", rollback_error);
+                return error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Penghapusan turnamen gagal dan transaksi tidak dapat dibatalkan",
+                );
+            }
             error_response(StatusCode::NOT_FOUND, "Gagal menghapus turnamen")
         }
     }

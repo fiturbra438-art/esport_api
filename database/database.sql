@@ -4,6 +4,8 @@ CREATE TABLE users (
     username VARCHAR(255) UNIQUE NOT NULL,
     mmr_point INTEGER DEFAULT 1000,
     password VARCHAR(255),
+    role VARCHAR(20) NOT NULL DEFAULT 'user'
+        CHECK (role IN ('user', 'admin')),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -18,6 +20,9 @@ CREATE TABLE tournaments (
     CHECK (total_slots >= 0),
     CHECK (available_slots >= 0 AND available_slots <= total_slots)
 );
+
+CREATE UNIQUE INDEX uq_tournaments_name_normalized
+    ON tournaments (LOWER(BTRIM(name)));
 
 CREATE INDEX idx_tournaments_name
     ON tournaments (name);

@@ -43,16 +43,40 @@ pub async fn create_match(
             "Turnamen wajib diisi, nama tim maksimal 100 karakter, dan round_number harus positif",
         );
     }
+    let mut transaction = match pool.begin().await {
+        Ok(transaction) => transaction,
+        Err(error) => {
+            log_error("create_match_begin_transaction", error);
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Gagal memulai transaksi pembuatan pertandingan",
+            );
+        }
+    };
     if let Err(error) = sqlx::query("CALL pr_create_match($1, $2, $3, $4)")
         .bind(payload.tournament_name)
         .bind(payload.team1_name)
         .bind(payload.team2_name)
         .bind(payload.round_number)
-        .execute(&pool)
+        .execute(&mut *transaction)
         .await
     {
         log_error("create_match", error);
+        if let Err(rollback_error) = transaction.rollback().await {
+            log_error("create_match_rollback", rollback_error);
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Pembuatan pertandingan gagal dan transaksi tidak dapat dibatalkan",
+            );
+        }
         return error_response(StatusCode::BAD_REQUEST, "Gagal membuat pertandingan");
+    }
+    if let Err(error) = transaction.commit().await {
+        log_error("create_match_commit", error);
+        return error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Gagal menyimpan pertandingan",
+        );
     }
 
     message(
@@ -121,21 +145,47 @@ pub async fn update_match_schedule(
         }
     };
 
+    let mut transaction = match pool.begin().await {
+        Ok(transaction) => transaction,
+        Err(error) => {
+            log_error("update_match_schedule_begin_transaction", error);
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Gagal memulai transaksi pembaruan jadwal",
+            );
+        }
+    };
     let result = sqlx::query!(
         "CALL pr_update_match_schedule($1, $2)",
         match_id,
         schedule_time
     )
-    .execute(&pool)
+    .execute(&mut *transaction)
     .await;
 
     match result {
-        Ok(_) => message(
-            StatusCode::OK,
-            "Jadwal pertandingan berhasil ditentukan/diperbarui!",
-        ),
+        Ok(_) => match transaction.commit().await {
+            Ok(()) => message(
+                StatusCode::OK,
+                "Jadwal pertandingan berhasil ditentukan/diperbarui!",
+            ),
+            Err(error) => {
+                log_error("update_match_schedule_commit", error);
+                error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Gagal menyimpan pembaruan jadwal",
+                )
+            }
+        },
         Err(error) => {
             log_error("update_match_schedule", error);
+            if let Err(rollback_error) = transaction.rollback().await {
+                log_error("update_match_schedule_rollback", rollback_error);
+                return error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Pembaruan jadwal gagal dan transaksi tidak dapat dibatalkan",
+                );
+            }
             error_response(
                 StatusCode::BAD_REQUEST,
                 "Gagal memperbarui jadwal pertandingan",

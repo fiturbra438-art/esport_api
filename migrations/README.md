@@ -23,6 +23,8 @@ should not be split into feature subdirectories.
 | 011 | `011_hide_password_from_registration.sql` | Stop returning the stored password hash from registration. |
 | 012 | `012_move_duplicate_registration_check_to_function.sql` | Validate duplicate tournament entries in the business function and remove the redundant trigger. |
 | 013 | `013_add_tournament_team_capacity.sql` | Add required tournament team limits and enforce capacity during registration. |
+| 014 | `014_add_user_roles.sql` | Add user/admin roles; new and existing accounts default to user. |
+| 015 | `015_prevent_duplicate_tournaments.sql` | Prevent duplicate tournament names, ignoring case and surrounding spaces. |
 
 ## Current database definitions
 
@@ -42,3 +44,8 @@ definitions in `database/` aligned with the final migrated schema.
 `POST /api/tournaments` requires a positive `max_teams` value. A tournament
 created before migration 013 with `total_slots = 0` remains unlimited for
 backward compatibility; newly created tournaments always have a finite limit.
+Only users with the `admin` role can create or delete tournaments. Promote a
+trusted account manually after registration; see the root `README.md`.
+Migration 015 fails with a descriptive error if existing tournament rows have
+duplicate names after trimming and case normalization; resolve those rows
+before restarting the application.

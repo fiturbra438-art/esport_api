@@ -98,29 +98,55 @@ pub async fn register_user(
         }
     };
 
+    let mut transaction = match pool.begin().await {
+        Ok(transaction) => transaction,
+        Err(error) => {
+            log_error("register_user_begin_transaction", error);
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Gagal memulai transaksi registrasi",
+            );
+        }
+    };
     let result =
         sqlx::query_as::<_, UserResponse>("CALL pr_register_user($1, $2, $3, NULL, NULL, NULL)")
             .bind(username)
             .bind(password)
             .bind(mmr_point.unwrap_or(0))
-            .fetch_one(&pool)
+            .fetch_one(&mut *transaction)
             .await;
 
     match result {
-        Ok(user) => (
-            StatusCode::CREATED,
-            Json(serde_json::json!({
-                "message": "Registrasi user berhasil!",
-                "data": user
-            })),
-        )
-            .into_response(),
+        Ok(user) => match transaction.commit().await {
+            Ok(()) => (
+                StatusCode::CREATED,
+                Json(serde_json::json!({
+                    "message": "Registrasi user berhasil!",
+                    "data": user
+                })),
+            )
+                .into_response(),
+            Err(error) => {
+                log_error("register_user_commit", error);
+                error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Gagal menyimpan registrasi user",
+                )
+            }
+        },
         Err(error) => {
             let duplicate = error
                 .as_database_error()
                 .and_then(|database_error| database_error.code())
                 .is_some_and(|code| code == "23505");
             log_error("register_user", error);
+            if let Err(rollback_error) = transaction.rollback().await {
+                log_error("register_user_rollback", rollback_error);
+                return error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Registrasi gagal dan transaksi tidak dapat dibatalkan",
+                );
+            }
             let status = if duplicate {
                 StatusCode::CONFLICT
             } else {
@@ -156,8 +182,8 @@ pub async fn login(
         return error_response(StatusCode::BAD_REQUEST, error);
     }
 
-    let account = match sqlx::query_as::<_, (i32, String, Option<String>)>(
-        "SELECT id, username, password FROM users WHERE username = $1",
+    let account = match sqlx::query_as::<_, (i32, String, Option<String>, String)>(
+        "SELECT id, username, password, role FROM users WHERE username = $1",
     )
     .bind(&payload.username)
     .fetch_optional(&pool)
@@ -214,7 +240,7 @@ pub async fn login(
             "access_token": token,
             "token_type": "Bearer",
             "expires_in": crate::auth::TOKEN_TTL_SECONDS,
-            "user": { "id": account.0, "username": account.1 }
+            "user": { "id": account.0, "username": account.1, "role": account.3 }
         })),
     )
         .into_response()

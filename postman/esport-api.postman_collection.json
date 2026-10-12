@@ -53,6 +53,18 @@
     {
       "key": "token",
       "value": ""
+    },
+    {
+      "key": "adminUsername",
+      "value": ""
+    },
+    {
+      "key": "adminPassword",
+      "value": ""
+    },
+    {
+      "key": "adminToken",
+      "value": ""
     }
   ],
   "item": [
@@ -266,6 +278,7 @@
               "    const body = pm.response.json();",
               "    pm.expect(body.token_type).to.eql('Bearer');",
               "    pm.expect(body.access_token).to.be.a('string').and.not.empty;",
+              "    pm.expect(body.user.role).to.eql('user');",
               "    pm.collectionVariables.set('token', body.access_token);",
               "});"
             ]
@@ -711,6 +724,90 @@
       ]
     },
     {
+      "name": "10d. Reject tournament creation for regular user",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Pengguna biasa tidak dapat membuat turnamen', function () {",
+              "    pm.response.to.have.status(403);",
+              "    pm.expect(pm.response.json().error).to.eql('Hanya admin yang dapat mengelola turnamen');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Must Be Rejected\",\n  \"max_teams\": 1\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/api/tournaments",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "10e. Login tournament admin",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Login admin berhasil dan role terverifikasi', function () {",
+              "    pm.response.to.have.status(200);",
+              "    const body = pm.response.json();",
+              "    pm.expect(body.user.role).to.eql('admin');",
+              "    pm.collectionVariables.set('adminToken', body.access_token);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{adminUsername}}\",\n  \"password\": \"{{adminPassword}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/api/auth/login"
+      }
+    },
+    {
       "name": "11. Create tournament",
       "event": [
         {
@@ -727,7 +824,7 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('Turnamen berhasil dibuat', function () {",
+              "pm.test('Turnamen berhasil dibuat oleh admin', function () {",
               "    pm.response.to.have.status(201);",
               "    const data = pm.response.json().data;",
               "    pm.expect(data.name).to.eql(pm.collectionVariables.get('tournamentName'));",
@@ -763,11 +860,58 @@
           "bearer": [
             {
               "key": "token",
-              "value": "{{token}}",
+              "value": "{{adminToken}}",
               "type": "string"
             }
           ]
         }
+      }
+    },
+    {
+      "name": "11a. Reject duplicate tournament name",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Nama turnamen yang sama ditolak dengan HTTP 409', function () {",
+              "    pm.response.to.have.status(409);",
+              "    pm.expect(pm.response.json().error).to.eql('Nama turnamen sudah digunakan');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"{{tournamentName}}\",\n  \"max_teams\": 1\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/api/tournaments",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{adminToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "description": "Jalankan setelah request 11. Create tournament. Nama sama sengaja digunakan untuk menguji HTTP 409."
       }
     },
     {
@@ -1179,7 +1323,7 @@
           "bearer": [
             {
               "key": "token",
-              "value": "{{token}}",
+              "value": "{{adminToken}}",
               "type": "string"
             }
           ]
