@@ -1,25 +1,4 @@
 -- Lookup functions
-DROP PROCEDURE IF EXISTS pr_create_team(TEXT, INTEGER);
-DROP PROCEDURE IF EXISTS pr_create_team(TEXT, TEXT);
-DROP PROCEDURE IF EXISTS pr_create_tournament(TEXT);
-DROP PROCEDURE IF EXISTS pr_register_team_to_tournament(INTEGER, INTEGER);
-DROP PROCEDURE IF EXISTS pr_register_team_to_tournament(TEXT, TEXT);
-DROP PROCEDURE IF EXISTS pr_add_team_member(INTEGER, INTEGER);
-DROP PROCEDURE IF EXISTS pr_add_team_member(TEXT, TEXT);
-DROP PROCEDURE IF EXISTS pr_remove_team_member(INTEGER, INTEGER);
-DROP PROCEDURE IF EXISTS pr_remove_team_member(TEXT, TEXT);
-DROP PROCEDURE IF EXISTS pr_transfer_captain(INTEGER, INTEGER);
-DROP PROCEDURE IF EXISTS pr_transfer_captain(TEXT, TEXT);
-DROP PROCEDURE IF EXISTS pr_create_match(INTEGER, INTEGER, INTEGER, INTEGER);
-DROP PROCEDURE IF EXISTS pr_create_match(TEXT, TEXT, TEXT, INTEGER);
-DROP PROCEDURE IF EXISTS pr_delete_tournament(INTEGER);
-DROP PROCEDURE IF EXISTS pr_delete_tournament(TEXT);
-DROP PROCEDURE IF EXISTS pr_update_match_schedule(INTEGER, TIMESTAMP);
-DROP PROCEDURE IF EXISTS pr_register_user(TEXT, TEXT, INTEGER);
-DROP PROCEDURE IF EXISTS pr_get_user_id_by_username(TEXT);
-DROP PROCEDURE IF EXISTS pr_get_team_id_by_name(TEXT);
-DROP PROCEDURE IF EXISTS pr_get_tournament_id_by_name(TEXT);
-
 CREATE OR REPLACE FUNCTION fn_user_id_by_username(p_username TEXT)
 RETURNS INTEGER
 LANGUAGE plpgsql
@@ -195,8 +174,24 @@ RETURNS VOID
 LANGUAGE plpgsql
 AS $$
 BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM tournament_registrations
+        WHERE tournament_id = p_tournament_id
+          AND team_id = p_team_id
+    ) THEN
+        RAISE EXCEPTION 'Tim sudah terdaftar pada turnamen ini'
+            USING ERRCODE = '23505';
+    END IF;
+
     INSERT INTO tournament_registrations (tournament_id, team_id)
-    VALUES (p_tournament_id, p_team_id);
+    VALUES (p_tournament_id, p_team_id)
+    ON CONFLICT (tournament_id, team_id) DO NOTHING;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Tim sudah terdaftar pada turnamen ini'
+            USING ERRCODE = '23505';
+    END IF;
 END;
 $$;
 

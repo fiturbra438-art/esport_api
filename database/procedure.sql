@@ -1,25 +1,3 @@
--- Hapus signature lama yang menerima ID secara langsung.
-DROP PROCEDURE IF EXISTS pr_create_team(TEXT, INTEGER);
-DROP PROCEDURE IF EXISTS pr_create_team(TEXT, TEXT);
-DROP PROCEDURE IF EXISTS pr_create_tournament(TEXT);
-DROP PROCEDURE IF EXISTS pr_register_team_to_tournament(INTEGER, INTEGER);
-DROP PROCEDURE IF EXISTS pr_register_team_to_tournament(TEXT, TEXT);
-DROP PROCEDURE IF EXISTS pr_add_team_member(INTEGER, INTEGER);
-DROP PROCEDURE IF EXISTS pr_add_team_member(TEXT, TEXT);
-DROP PROCEDURE IF EXISTS pr_remove_team_member(INTEGER, INTEGER);
-DROP PROCEDURE IF EXISTS pr_remove_team_member(TEXT, TEXT);
-DROP PROCEDURE IF EXISTS pr_transfer_captain(INTEGER, INTEGER);
-DROP PROCEDURE IF EXISTS pr_transfer_captain(TEXT, TEXT);
-DROP PROCEDURE IF EXISTS pr_create_match(INTEGER, INTEGER, INTEGER, INTEGER);
-DROP PROCEDURE IF EXISTS pr_create_match(TEXT, TEXT, TEXT, INTEGER);
-DROP PROCEDURE IF EXISTS pr_delete_tournament(INTEGER);
-DROP PROCEDURE IF EXISTS pr_delete_tournament(TEXT);
-DROP PROCEDURE IF EXISTS pr_update_match_schedule(INTEGER, TIMESTAMP);
-DROP PROCEDURE IF EXISTS pr_register_user(TEXT, TEXT, INTEGER);
-DROP PROCEDURE IF EXISTS pr_get_user_id_by_username(TEXT);
-DROP PROCEDURE IF EXISTS pr_get_team_id_by_name(TEXT);
-DROP PROCEDURE IF EXISTS pr_get_tournament_id_by_name(TEXT);
-
 -- Lookup wrappers
 CREATE PROCEDURE pr_get_user_id_by_username(
     IN p_username TEXT,
@@ -157,6 +135,7 @@ CREATE PROCEDURE pr_register_team_to_tournament(
 LANGUAGE plpgsql
 AS $$
 BEGIN
+    -- Duplicate validation and insertion are atomic inside the business function.
     PERFORM fn_register_team_to_tournament(
         fn_tournament_id_by_name(p_tournament_name),
         fn_team_id_by_name(p_team_name)

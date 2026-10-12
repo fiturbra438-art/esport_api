@@ -25,32 +25,6 @@ ON teams
 FOR EACH ROW
 EXECUTE FUNCTION fn_sync_captain_membership();
 
--- Registration triggers
--- The UNIQUE constraint remains the final protection against duplicate entries.
-CREATE OR REPLACE FUNCTION fn_prevent_duplicate_registration()
-RETURNS TRIGGER
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    IF EXISTS (
-        SELECT 1
-        FROM tournament_registrations
-        WHERE tournament_id = NEW.tournament_id
-          AND team_id = NEW.team_id
-    ) THEN
-        RAISE EXCEPTION 'Tim sudah terdaftar pada turnamen ini';
-    END IF;
-
-    RETURN NEW;
-END;
-$$;
-
-CREATE OR REPLACE TRIGGER trg_prevent_duplicate_registration
-BEFORE INSERT
-ON tournament_registrations
-FOR EACH ROW
-EXECUTE FUNCTION fn_prevent_duplicate_registration();
-
 -- Keep the registration count in sync.
 CREATE OR REPLACE FUNCTION fn_update_tournament_slots_on_register()
 RETURNS TRIGGER

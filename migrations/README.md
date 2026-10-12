@@ -21,6 +21,7 @@ should not be split into feature subdirectories.
 | 009 | `009_lookup_ids_by_names.sql` | Add name-based lookups and procedure signatures. |
 | 010 | `010_wrap_business_functions_with_procedures.sql` | Keep business logic in functions and expose it through procedures. |
 | 011 | `011_hide_password_from_registration.sql` | Stop returning the stored password hash from registration. |
+| 012 | `012_move_duplicate_registration_check_to_function.sql` | Validate duplicate tournament entries in the business function and remove the redundant trigger. |
 
 ## Current database definitions
 

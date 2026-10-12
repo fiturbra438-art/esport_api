@@ -839,6 +839,52 @@
       }
     },
     {
+      "name": "13a. Reject duplicate tournament registration",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Pendaftaran ganda ditolak dan dikembalikan sebagai conflict', function () {",
+              "    pm.response.to.have.status(409);",
+              "    pm.expect(pm.response.json().error).to.eql('Tim sudah terdaftar pada turnamen ini');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"tournament_name\": \"{{tournamentName}}\",\n  \"team_name\": \"{{teamAlpha}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/api/tournaments/register",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
       "name": "14. Create match",
       "event": [
         {

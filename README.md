@@ -34,8 +34,17 @@ REST API untuk mengelola player, tim, turnamen, dan jadwal pertandingan e-sport.
 
    `JWT_SECRET` harus minimal 32 byte dan hanya disimpan di environment atau
    `.env` (yang diabaikan Git). Jangan commit file `.env`.
-   Compose memerlukan `POSTGRES_USER`, `POSTGRES_PASSWORD`, dan `POSTGRES_DB`;
-   API juga memerlukan `DATABASE_URL` serta `JWT_SECRET`.
+   Compose memerlukan `POSTGRES_USER`, `POSTGRES_PASSWORD`, dan `POSTGRES_DB`.
+   `DATABASE_URL` dipakai oleh endpoint API dan sebaiknya memakai role terbatas
+   seperti `esport_app`. `DATABASE_MIGRATOR_URL` dipakai hanya saat startup
+   untuk migrasi, dan harus memakai akun pemilik database/schema. Keduanya juga
+   harus menggunakan host dan nama database yang sama. `JWT_SECRET` diperlukan
+   untuk token login. Tambahkan `DATABASE_MIGRATOR_URL` ke `.env` dengan
+   kredensial pemilik database, contohnya:
+
+   ```text
+   DATABASE_MIGRATOR_URL=postgres://<pemilik>:<password-pemilik>@localhost:5432/TOURNAMEN_ESPORT
+   ```
 
 2. Jalankan PostgreSQL:
 
@@ -50,14 +59,22 @@ REST API untuk mengelola player, tim, turnamen, dan jadwal pertandingan e-sport.
    $env:DATABASE_URL = "postgres://postgres:fitur1206@localhost:5432/TOURNAMEN_ESPORT"
    ```
 
-4. Pasang SQLx CLI jika belum tersedia, lalu jalankan migrasi sebelum build agar skema tersedia untuk pemeriksaan query SQLx:
+4. Pasang SQLx CLI jika belum tersedia. SQLx CLI memakai `DATABASE_URL`, jadi
+   arahkan sementara ke akun pemilik database saat menjalankan migrasi manual.
+   API juga menjalankan migrasi otomatis melalui `DATABASE_MIGRATOR_URL` saat
+   startup:
 
    ```powershell
    cargo install sqlx-cli --version 0.7.4 --no-default-features --features postgres,rustls --locked
+   $env:DATABASE_URL = "<samakan dengan DATABASE_MIGRATOR_URL>"
    sqlx migrate run
+   $env:DATABASE_URL = "<samakan dengan DATABASE_URL untuk role aplikasi>"
    ```
 
-5. Pastikan `DATABASE_URL` menggunakan username, password, host, port, dan nama database yang sama dengan konfigurasi PostgreSQL di `docker-compose.yml`. Aplikasi membaca alamat database dan `JWT_SECRET` dari environment atau file `.env`.
+5. Pastikan kedua URL database mengarah ke database yang sama. Jika memakai
+   role aplikasi terpisah, jalankan `database/dcl.sql` sebagai pemilik database
+   setelah migrasi pertama agar role tersebut mendapat izin atas tabel,
+   sequence, dan prosedur.
 
 6. Jalankan API:
 
@@ -164,7 +181,7 @@ lalu atur password secara interaktif dengan `\password esport_app` di `psql` seb
 [`database/dcl.sql`](./database/dcl.sql). File tersebut hanya memberikan grants
 dan tidak lagi menetapkan password bawaan.
 
-Migrasi `008_add_procedure_indexes.sql` menambahkan indeks untuk pencarian jadwal pertandingan dan kolom foreign key yang digunakan saat mengelola anggota, pendaftaran, serta penghapusan data terkait. Constraint unik pada pasangan anggota tim dan pendaftaran turnamen sudah menyediakan indeks untuk pemeriksaan duplikasi. Migrasi `009_lookup_ids_by_names.sql` menambahkan indeks nama turnamen dan mengubah prosedur terkait agar menerima username/nama alih-alih ID. Migrasi `010_wrap_business_functions_with_procedures.sql` mempertahankan fungsi bisnis dan membungkusnya dengan stored procedure, termasuk prosedur registrasi pengguna. Endpoint API memanggil prosedur melalui `CALL`; pembacaan tetap menggunakan `SELECT` pada tabel atau view. Fungsi trigger tetap digunakan karena PostgreSQL mewajibkannya untuk menjalankan trigger.
+Migrasi `008_add_procedure_indexes.sql` menambahkan indeks untuk pencarian jadwal pertandingan dan kolom foreign key yang digunakan saat mengelola anggota, pendaftaran, serta penghapusan data terkait. Constraint unik pada pasangan anggota tim dan pendaftaran turnamen tetap menjadi perlindungan terakhir untuk mencegah duplikasi. Migrasi `009_lookup_ids_by_names.sql` menambahkan indeks nama turnamen dan mengubah prosedur terkait agar menerima username/nama alih-alih ID. Migrasi `010_wrap_business_functions_with_procedures.sql` mempertahankan fungsi bisnis dan membungkusnya dengan stored procedure, termasuk prosedur registrasi pengguna. Migrasi `012_move_duplicate_registration_check_to_function.sql` memindahkan pemeriksaan pendaftaran ganda ke function registrasi, yang tetap dipanggil oleh procedure; endpoint menjalankan pemanggilan procedure dalam transaksi dan membatalkan transaksi jika terjadi error. Trigger lain tetap dipakai untuk sinkronisasi anggota kapten dan penghitung pendaftaran.
 
 ## CI
 

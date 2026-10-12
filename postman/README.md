@@ -16,8 +16,10 @@ The tests cover API health, user registration/login/profile, password omission
 from responses, rejection of protected mutations without a token and with an
 invalid token, team
 create/profile/join/duplicate join/captain transfer/member removal, tournament
-create/list/register/delete, match create/list/scheduling, invalid schedule
-input, and a missing user profile. The login test stores the JWT in the
+create/list/register/duplicate-registration/delete, match create/list/scheduling,
+invalid schedule input, and a missing user profile. A repeated tournament
+registration must return HTTP 409; the failed request is rolled back. The login
+test stores the JWT in the
 collection's `token` variable; protected requests use it as a Bearer token.
 
 The final request deletes the test tournament; PostgreSQL cascades this deletion

@@ -18,6 +18,9 @@ async fn main() {
         .init();
     let database_url = env::var("DATABASE_URL")
         .expect("❌ DATABASE_URL tidak ditemukan di environment atau file .env");
+    let migration_database_url = env::var("DATABASE_MIGRATOR_URL").expect(
+        "❌ DATABASE_MIGRATOR_URL wajib diatur ke koneksi pemilik database untuk menjalankan migrasi",
+    );
     let jwt_secret = env::var("JWT_SECRET")
         .expect("❌ JWT_SECRET wajib diatur melalui environment atau file .env");
     if jwt_secret.len() < 32 {
@@ -25,16 +28,24 @@ async fn main() {
     }
     let jwt_config = auth::JwtConfig::new(jwt_secret);
 
+    let migration_pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&migration_database_url)
+        .await
+        .expect("❌ Gagal terhubung ke database dengan akun migrasi");
+
+    sqlx::migrate!()
+        .run(&migration_pool)
+        .await
+        .expect("❌ Gagal menjalankan migrasi database dengan akun migrasi!");
+
+    migration_pool.close().await;
+
     let pool: sqlx::Pool<sqlx::Postgres> = PgPoolOptions::new()
         .max_connections(5)
         .connect(&database_url)
         .await
         .expect("❌ Gagal terhubung ke database! Pastikan Docker menyala.");
-
-    sqlx::migrate!()
-        .run(&pool)
-        .await
-        .expect("❌ Gagal menjalankan migrasi database!");
 
     println!("✅ Berhasil terhubung ke database TOURNAMEN_ESPORT!");
 
