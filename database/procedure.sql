@@ -1,4 +1,6 @@
 -- Lookup wrappers
+-- Mutating procedures commit explicitly and must be called outside an explicit
+-- transaction block. PostgreSQL rolls back the CALL if an error occurs first.
 CREATE PROCEDURE pr_get_user_id_by_username(
     IN p_username TEXT,
     OUT user_id INTEGER
@@ -47,6 +49,7 @@ BEGIN
     SELECT created_user.id, created_user.username, created_user.mmr_point
     INTO id, username, mmr_point
     FROM fn_register_user(p_username, p_password, p_mmr_point) AS created_user;
+    COMMIT;
 END;
 $$;
 
@@ -78,6 +81,7 @@ BEGIN
     SELECT created_team.id, created_team.name, created_team.captain_id
     INTO id, name, captain_id
     FROM fn_create_team(p_name, p_captain_username) AS created_team;
+    COMMIT;
 END;
 $$;
 
@@ -101,6 +105,7 @@ BEGIN
         RAISE EXCEPTION 'Pengguna sudah menjadi anggota tim "%"', p_team_name
             USING ERRCODE = '23505';
     END IF;
+    COMMIT;
 END;
 $$;
 
@@ -137,6 +142,7 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'Player "%" bukan anggota tim "%"', p_username, p_team_name;
     END IF;
+    COMMIT;
 END;
 $$;
 
@@ -176,6 +182,7 @@ BEGIN
             p_new_captain_username,
             p_team_name;
     END IF;
+    COMMIT;
 END;
 $$;
 
@@ -208,6 +215,7 @@ BEGIN
         created_tournament.available_slots
     INTO id, name, status, total_slots, available_slots
     FROM fn_create_tournament(p_name, p_max_teams) AS created_tournament;
+    COMMIT;
 END;
 $$;
 
@@ -242,6 +250,7 @@ BEGIN
         fn_tournament_id_by_name(p_tournament_name),
         v_team_id
     );
+    COMMIT;
 END;
 $$;
 
@@ -260,6 +269,7 @@ BEGIN
     END IF;
 
     PERFORM fn_delete_tournament(fn_tournament_id_by_name(p_tournament_name));
+    COMMIT;
 END;
 $$;
 
@@ -293,6 +303,7 @@ BEGIN
         END,
         p_round_number
     );
+    COMMIT;
 END;
 $$;
 
@@ -314,6 +325,7 @@ BEGIN
     IF NOT fn_update_match_schedule(p_match_id, p_schedule_time) THEN
         RAISE EXCEPTION 'Match % tidak ditemukan', p_match_id;
     END IF;
+    COMMIT;
 END;
 $$;
 
@@ -382,6 +394,7 @@ BEGIN
         RAISE EXCEPTION 'Player tidak ditemukan'
             USING ERRCODE = 'P0002';
     END IF;
+    COMMIT;
 END;
 $$;
 
@@ -445,6 +458,7 @@ BEGIN
 
     DELETE FROM team_members
     WHERE team_id = v_team_id AND user_id = p_actor_id;
+    COMMIT;
 END;
 $$;
 
@@ -481,6 +495,7 @@ BEGIN
 
     DELETE FROM teams
     WHERE id = v_team_id;
+    COMMIT;
 END;
 $$;
 
@@ -594,6 +609,7 @@ BEGIN
 
     DELETE FROM users
     WHERE id = p_actor_id;
+    COMMIT;
 END;
 $$;
 
@@ -637,5 +653,6 @@ BEGIN
     UPDATE matches
     SET winner_id = v_winner_id, status = 'completed'
     WHERE id = p_match_id;
+    COMMIT;
 END;
 $$;

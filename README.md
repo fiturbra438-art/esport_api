@@ -208,18 +208,19 @@ kapten tim yang sedang didaftarkan.
 API meneruskan ID pengguna dari JWT ke stored procedure. Procedure memeriksa
 role admin atau kapten sebelum mutasi, mengunci baris tim selama operasi yang
 memerlukan pemeriksaan kapten, dan mengembalikan HTTP 403 bila akses ditolak.
-Setiap pemanggilan procedure tersebut dijalankan dalam transaksi.
 
 Username registrasi dibatasi 3-32 karakter (huruf, angka, `_`, `-`), password
 12-128 byte, MMR 0-100000, nama resource 1-100 karakter, dan nomor ronde serta
 ID harus positif. `max_teams` wajib berupa bilangan bulat positif. Pendaftaran
 ditolak dengan HTTP 409 ketika kuota turnamen penuh. Error database dicatat di
 log server dan respons hanya berisi pesan umum, bukan detail SQL.
-Setiap endpoint tulis yang memanggil stored procedure menjalankan `CALL` di
-dalam transaksi SQLx dan melakukan commit saat berhasil atau rollback saat
-gagal. Pendaftaran turnamen juga mencakup pemeriksaan kapten dan pendaftaran
-dalam satu transaksi. Di PostgreSQL, satu `CALL` juga atomik secara default;
-transaksi eksplisit memastikan perilaku commit/rollback konsisten di backend.
+Setiap endpoint tulis menjalankan satu `CALL` langsung melalui koneksi pool,
+tanpa mengelola transaksi di backend. Procedure yang mengubah data menjalankan
+`COMMIT` eksplisit di akhir; jika error terjadi sebelum itu, PostgreSQL
+membatalkan perubahan dalam `CALL`. Karena itu, mutating procedure harus
+dipanggil sebagai `CALL` langsung, bukan di dalam transaksi eksplisit yang
+dibuka pemanggil. Proses pendaftaran turnamen, termasuk pemeriksaan kapten,
+pendaftaran, dan perubahan kuota oleh trigger, berada dalam satu `CALL`.
 
 Kata sandi akun lama yang tersimpan sebagai plaintext tidak dapat login setelah
 hash Argon2 diberlakukan. Saat ini belum ada endpoint reset password, sehingga
@@ -268,7 +269,8 @@ dan tidak lagi menetapkan password bawaan.
 Baseline dibagi menjadi beberapa file pendek sesuai jenis objek database:
 schema, functions, triggers, views, lalu procedures. Fitur tambahan dibuat
 sebagai migrasi baru dengan versi lebih tinggi. API memanggil prosedur untuk
-mutasi database di dalam transaksi; pembacaan daftar menggunakan view.
+mutasi database tanpa mengelola transaksi; atomisitas tiap `CALL` ditangani
+PostgreSQL. Pembacaan daftar menggunakan view.
 
 ## CI
 

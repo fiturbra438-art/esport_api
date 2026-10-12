@@ -80,23 +80,13 @@ pub async fn create_team(
             );
         }
     };
-    let mut transaction = match pool.begin().await {
-        Ok(transaction) => transaction,
-        Err(error) => {
-            log_error("create_team_begin_transaction", error);
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Gagal memulai transaksi pembuatan tim",
-            );
-        }
-    };
     let team = match sqlx::query_as::<_, TeamResponse>(
         "CALL pr_create_team($1, $2, $3, NULL, NULL, NULL)",
     )
     .bind(actor_id)
     .bind(payload.name)
     .bind(payload.captain_username)
-    .fetch_one(&mut *transaction)
+    .fetch_one(&pool)
     .await
     {
         Ok(team) => team,
@@ -106,13 +96,6 @@ pub async fn create_team(
                 .and_then(|database_error| database_error.code())
                 .is_some_and(|code| code == "42501");
             log_error("create_team", error);
-            if let Err(rollback_error) = transaction.rollback().await {
-                log_error("create_team_rollback", rollback_error);
-                return error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Pembuatan tim gagal dan transaksi tidak dapat dibatalkan",
-                );
-            }
             return if forbidden {
                 error_response(
                     StatusCode::FORBIDDEN,
@@ -123,11 +106,6 @@ pub async fn create_team(
             };
         }
     };
-    if let Err(error) = transaction.commit().await {
-        log_error("create_team_commit", error);
-        return error_response(StatusCode::INTERNAL_SERVER_ERROR, "Gagal menyimpan tim");
-    }
-
     (
         StatusCode::CREATED,
         Json(serde_json::json!({
@@ -163,36 +141,17 @@ pub async fn join_team(
             );
         }
     };
-    let mut transaction = match pool.begin().await {
-        Ok(transaction) => transaction,
-        Err(error) => {
-            log_error("join_team_begin_transaction", error);
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Gagal memulai transaksi penambahan anggota",
-            );
-        }
-    };
     let result = sqlx::query("CALL pr_add_team_member($1, $2)")
         .bind(actor_id)
         .bind(payload.team_name)
-        .execute(&mut *transaction)
+        .execute(&pool)
         .await;
 
     match result {
-        Ok(_) => match transaction.commit().await {
-            Ok(()) => message(
-                StatusCode::CREATED,
-                "Player berhasil bergabung ke dalam tim!",
-            ),
-            Err(error) => {
-                log_error("join_team_commit", error);
-                error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Gagal menyimpan penambahan anggota",
-                )
-            }
-        },
+        Ok(_) => message(
+            StatusCode::CREATED,
+            "Player berhasil bergabung ke dalam tim!",
+        ),
         Err(error) => {
             let database_code = error
                 .as_database_error()
@@ -202,13 +161,6 @@ pub async fn join_team(
             let already_member = database_code.as_deref() == Some("23505");
             if !forbidden && !already_member {
                 log_error("join_team", error);
-            }
-            if let Err(rollback_error) = transaction.rollback().await {
-                log_error("join_team_rollback", rollback_error);
-                return error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Penambahan anggota gagal dan transaksi tidak dapat dibatalkan",
-                );
             }
             if forbidden {
                 error_response(StatusCode::FORBIDDEN, "Pengguna pada token tidak valid")
@@ -252,47 +204,21 @@ pub async fn leave_team(
             );
         }
     };
-    let mut transaction = match pool.begin().await {
-        Ok(transaction) => transaction,
-        Err(error) => {
-            log_error("leave_team_begin_transaction", error);
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Gagal memulai transaksi keluar tim",
-            );
-        }
-    };
     let result = sqlx::query("CALL pr_leave_team($1, $2, $3)")
         .bind(actor_id)
         .bind(payload.team_name)
         .bind(payload.new_captain_username)
-        .execute(&mut *transaction)
+        .execute(&pool)
         .await;
 
     match result {
-        Ok(_) => match transaction.commit().await {
-            Ok(()) => message(StatusCode::OK, "Berhasil keluar dari tim"),
-            Err(error) => {
-                log_error("leave_team_commit", error);
-                error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Gagal menyimpan perubahan keluar tim",
-                )
-            }
-        },
+        Ok(_) => message(StatusCode::OK, "Berhasil keluar dari tim"),
         Err(error) => {
             let code = error
                 .as_database_error()
                 .and_then(|database_error| database_error.code())
                 .map(|code| code.into_owned());
             log_error("leave_team", error);
-            if let Err(rollback_error) = transaction.rollback().await {
-                log_error("leave_team_rollback", rollback_error);
-                return error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Keluar tim gagal dan transaksi tidak dapat dibatalkan",
-                );
-            }
             match code.as_deref() {
                 Some("P0002") => error_response(StatusCode::NOT_FOUND, "Tim tidak ditemukan"),
                 Some("P0001") => {
@@ -333,49 +259,23 @@ pub async fn delete_team(
             );
         }
     };
-    let mut transaction = match pool.begin().await {
-        Ok(transaction) => transaction,
-        Err(error) => {
-            log_error("delete_team_begin_transaction", error);
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Gagal memulai transaksi penghapusan tim",
-            );
-        }
-    };
     let result = sqlx::query("CALL pr_delete_team($1, $2)")
         .bind(actor_id)
         .bind(payload.team_name)
-        .execute(&mut *transaction)
+        .execute(&pool)
         .await;
 
     match result {
-        Ok(_) => match transaction.commit().await {
-            Ok(()) => message(
-                StatusCode::OK,
-                "Tim dan data pendaftarannya berhasil dihapus",
-            ),
-            Err(error) => {
-                log_error("delete_team_commit", error);
-                error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Gagal menyimpan penghapusan tim",
-                )
-            }
-        },
+        Ok(_) => message(
+            StatusCode::OK,
+            "Tim dan data pendaftarannya berhasil dihapus",
+        ),
         Err(error) => {
             let code = error
                 .as_database_error()
                 .and_then(|database_error| database_error.code())
                 .map(|code| code.into_owned());
             log_error("delete_team", error);
-            if let Err(rollback_error) = transaction.rollback().await {
-                log_error("delete_team_rollback", rollback_error);
-                return error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Penghapusan tim gagal dan transaksi tidak dapat dibatalkan",
-                );
-            }
             match code.as_deref() {
                 Some("42501") => error_response(
                     StatusCode::FORBIDDEN,
@@ -512,47 +412,21 @@ pub async fn remove_team_member(
             );
         }
     };
-    let mut transaction = match pool.begin().await {
-        Ok(transaction) => transaction,
-        Err(error) => {
-            log_error("remove_team_member_begin_transaction", error);
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Gagal memulai transaksi penghapusan anggota",
-            );
-        }
-    };
     let result = sqlx::query("CALL pr_remove_team_member($1, $2, $3)")
         .bind(actor_id)
         .bind(payload.team_name)
         .bind(payload.username)
-        .execute(&mut *transaction)
+        .execute(&pool)
         .await;
 
     match result {
-        Ok(_) => match transaction.commit().await {
-            Ok(()) => message(StatusCode::OK, "Player berhasil keluar/dihapus dari tim!"),
-            Err(error) => {
-                log_error("remove_team_member_commit", error);
-                error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Gagal menyimpan penghapusan anggota",
-                )
-            }
-        },
+        Ok(_) => message(StatusCode::OK, "Player berhasil keluar/dihapus dari tim!"),
         Err(error) => {
             let database_code = error
                 .as_database_error()
                 .and_then(|database_error| database_error.code())
                 .map(|code| code.into_owned());
             log_error("remove_team_member", error);
-            if let Err(rollback_error) = transaction.rollback().await {
-                log_error("remove_team_member_rollback", rollback_error);
-                return error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Penghapusan anggota gagal dan transaksi tidak dapat dibatalkan",
-                );
-            }
             if database_code.as_deref() == Some("42501") {
                 error_response(
                     StatusCode::FORBIDDEN,
@@ -593,50 +467,24 @@ pub async fn transfer_captain(
             );
         }
     };
-    let mut transaction = match pool.begin().await {
-        Ok(transaction) => transaction,
-        Err(error) => {
-            log_error("transfer_captain_begin_transaction", error);
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Gagal memulai transaksi perpindahan kapten",
-            );
-        }
-    };
     let result = sqlx::query("CALL pr_transfer_captain($1, $2, $3)")
         .bind(actor_id)
         .bind(payload.team_name)
         .bind(payload.new_captain_username)
-        .execute(&mut *transaction)
+        .execute(&pool)
         .await;
 
     match result {
-        Ok(_) => match transaction.commit().await {
-            Ok(()) => message(
-                StatusCode::OK,
-                "Jabatan ketua tim berhasil dipindahkan ke player baru!",
-            ),
-            Err(error) => {
-                log_error("transfer_captain_commit", error);
-                error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Gagal menyimpan perpindahan kapten",
-                )
-            }
-        },
+        Ok(_) => message(
+            StatusCode::OK,
+            "Jabatan ketua tim berhasil dipindahkan ke player baru!",
+        ),
         Err(error) => {
             let database_code = error
                 .as_database_error()
                 .and_then(|database_error| database_error.code())
                 .map(|code| code.into_owned());
             log_error("transfer_captain", error);
-            if let Err(rollback_error) = transaction.rollback().await {
-                log_error("transfer_captain_rollback", rollback_error);
-                return error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Perpindahan kapten gagal dan transaksi tidak dapat dibatalkan",
-                );
-            }
             if database_code.as_deref() == Some("42501") {
                 error_response(
                     StatusCode::FORBIDDEN,

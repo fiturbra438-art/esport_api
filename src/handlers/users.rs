@@ -98,55 +98,29 @@ pub async fn register_user(
         }
     };
 
-    let mut transaction = match pool.begin().await {
-        Ok(transaction) => transaction,
-        Err(error) => {
-            log_error("register_user_begin_transaction", error);
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Gagal memulai transaksi registrasi",
-            );
-        }
-    };
     let result =
         sqlx::query_as::<_, UserResponse>("CALL pr_register_user($1, $2, $3, NULL, NULL, NULL)")
             .bind(username)
             .bind(password)
             .bind(mmr_point.unwrap_or(0))
-            .fetch_one(&mut *transaction)
+            .fetch_one(&pool)
             .await;
 
     match result {
-        Ok(user) => match transaction.commit().await {
-            Ok(()) => (
-                StatusCode::CREATED,
-                Json(serde_json::json!({
-                    "message": "Registrasi user berhasil!",
-                    "data": user
-                })),
-            )
-                .into_response(),
-            Err(error) => {
-                log_error("register_user_commit", error);
-                error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Gagal menyimpan registrasi user",
-                )
-            }
-        },
+        Ok(user) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({
+                "message": "Registrasi user berhasil!",
+                "data": user
+            })),
+        )
+            .into_response(),
         Err(error) => {
             let duplicate = error
                 .as_database_error()
                 .and_then(|database_error| database_error.code())
                 .is_some_and(|code| code == "23505");
             log_error("register_user", error);
-            if let Err(rollback_error) = transaction.rollback().await {
-                log_error("register_user_rollback", rollback_error);
-                return error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Registrasi gagal dan transaksi tidak dapat dibatalkan",
-                );
-            }
             let status = if duplicate {
                 StatusCode::CONFLICT
             } else {
@@ -269,54 +243,28 @@ pub async fn update_username(
         }
     };
 
-    let mut transaction = match pool.begin().await {
-        Ok(transaction) => transaction,
-        Err(error) => {
-            log_error("update_username_begin_transaction", error);
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Gagal memulai transaksi perubahan username",
-            );
-        }
-    };
     let result =
         sqlx::query_as::<_, UserResponse>("CALL pr_update_username($1, $2, NULL, NULL, NULL)")
             .bind(actor_id)
             .bind(payload.username)
-            .fetch_one(&mut *transaction)
+            .fetch_one(&pool)
             .await;
 
     match result {
-        Ok(user) => match transaction.commit().await {
-            Ok(()) => (
-                StatusCode::OK,
-                Json(serde_json::json!({
-                    "message": "Username berhasil diperbarui",
-                    "data": user
-                })),
-            )
-                .into_response(),
-            Err(error) => {
-                log_error("update_username_commit", error);
-                error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Gagal menyimpan perubahan username",
-                )
-            }
-        },
+        Ok(user) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "message": "Username berhasil diperbarui",
+                "data": user
+            })),
+        )
+            .into_response(),
         Err(error) => {
             let code = error
                 .as_database_error()
                 .and_then(|database_error| database_error.code())
                 .map(|code| code.into_owned());
             log_error("update_username", error);
-            if let Err(rollback_error) = transaction.rollback().await {
-                log_error("update_username_rollback", rollback_error);
-                return error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Perubahan username gagal dan transaksi tidak dapat dibatalkan",
-                );
-            }
             match code.as_deref() {
                 Some("23505") => error_response(StatusCode::CONFLICT, "Username sudah digunakan"),
                 Some("P0002") => error_response(StatusCode::NOT_FOUND, "Player tidak ditemukan"),
@@ -369,52 +317,26 @@ pub async fn delete_account(
             );
         }
     };
-    let mut transaction = match pool.begin().await {
-        Ok(transaction) => transaction,
-        Err(error) => {
-            log_error("delete_account_begin_transaction", error);
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Gagal memulai transaksi penghapusan akun",
-            );
-        }
-    };
     let result = sqlx::query("CALL pr_delete_user($1, $2::jsonb)")
         .bind(actor_id)
         .bind(replacements)
-        .execute(&mut *transaction)
+        .execute(&pool)
         .await;
 
     match result {
-        Ok(_) => match transaction.commit().await {
-            Ok(()) => (
-                StatusCode::OK,
-                Json(serde_json::json!({
-                    "message": "Akun berhasil dihapus"
-                })),
-            )
-                .into_response(),
-            Err(error) => {
-                log_error("delete_account_commit", error);
-                error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Gagal menyimpan penghapusan akun",
-                )
-            }
-        },
+        Ok(_) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "message": "Akun berhasil dihapus"
+            })),
+        )
+            .into_response(),
         Err(error) => {
             let code = error
                 .as_database_error()
                 .and_then(|database_error| database_error.code())
                 .map(|code| code.into_owned());
             log_error("delete_account", error);
-            if let Err(rollback_error) = transaction.rollback().await {
-                log_error("delete_account_rollback", rollback_error);
-                return error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Penghapusan akun gagal dan transaksi tidak dapat dibatalkan",
-                );
-            }
             match code.as_deref() {
                 Some("P0002") => error_response(StatusCode::NOT_FOUND, "Player tidak ditemukan"),
                 Some("22023") | Some("23514") | Some("P0001") => error_response(

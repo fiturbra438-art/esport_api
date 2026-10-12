@@ -55,23 +55,13 @@ pub async fn create_tournament(
             "Nama turnamen wajib diisi (maksimal 100 karakter) dan max_teams harus lebih dari 0",
         );
     }
-    let mut transaction = match pool.begin().await {
-        Ok(transaction) => transaction,
-        Err(error) => {
-            log_error("create_tournament_begin_transaction", error);
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Gagal memulai transaksi pembuatan turnamen",
-            );
-        }
-    };
     let tournament = match sqlx::query_as::<_, TournamentResponse>(
         "CALL pr_create_tournament($1, $2, $3, NULL, NULL, NULL, NULL, NULL)",
     )
     .bind(actor_id)
     .bind(payload.name.trim())
     .bind(payload.max_teams)
-    .fetch_one(&mut *transaction)
+    .fetch_one(&pool)
     .await
     {
         Err(error) => {
@@ -84,13 +74,6 @@ pub async fn create_tournament(
                 .and_then(|database_error| database_error.code())
                 .is_some_and(|code| code == "42501");
             log_error("create_tournament", error);
-            if let Err(rollback_error) = transaction.rollback().await {
-                log_error("create_tournament_rollback", rollback_error);
-                return error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Pembuatan turnamen gagal dan transaksi tidak dapat dibatalkan",
-                );
-            }
             return if forbidden {
                 error_response(
                     StatusCode::FORBIDDEN,
@@ -104,13 +87,6 @@ pub async fn create_tournament(
         }
         Ok(tournament) => tournament,
     };
-    if let Err(error) = transaction.commit().await {
-        log_error("create_tournament_commit", error);
-        return error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Gagal menyimpan turnamen",
-        );
-    }
 
     (
         StatusCode::CREATED,
@@ -262,22 +238,11 @@ pub async fn register_tournament(
         }
     };
 
-    let mut transaction = match pool.begin().await {
-        Ok(transaction) => transaction,
-        Err(error) => {
-            log_error("register_tournament_begin_transaction", error);
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Gagal memulai transaksi pendaftaran",
-            );
-        }
-    };
-
     let result = sqlx::query("CALL pr_register_team_to_tournament($1, $2, $3)")
         .bind(actor_id)
         .bind(&payload.tournament_name)
         .bind(&payload.team_name)
-        .execute(&mut *transaction)
+        .execute(&pool)
         .await;
 
     if let Err(error) = result {
@@ -290,13 +255,6 @@ pub async fn register_tournament(
         let forbidden = database_code.as_deref() == Some("42501");
         let team_missing = database_code.as_deref() == Some("P0002");
         log_error("register_tournament", error);
-        if let Err(rollback_error) = transaction.rollback().await {
-            log_error("register_tournament_rollback", rollback_error);
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Pendaftaran gagal dan transaksi tidak dapat dibatalkan",
-            );
-        }
         return if forbidden {
             error_response(
                 StatusCode::FORBIDDEN,
@@ -319,19 +277,10 @@ pub async fn register_tournament(
         };
     }
 
-    match transaction.commit().await {
-        Ok(()) => message(
-            StatusCode::CREATED,
-            "Tim berhasil didaftarkan ke turnamen dan siap bertanding!",
-        ),
-        Err(error) => {
-            log_error("register_tournament_commit", error);
-            error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Gagal menyimpan pendaftaran",
-            )
-        }
-    }
+    message(
+        StatusCode::CREATED,
+        "Tim berhasil didaftarkan ke turnamen dan siap bertanding!",
+    )
 }
 
 pub async fn delete_tournament(
@@ -354,48 +303,22 @@ pub async fn delete_tournament(
             "Nama turnamen wajib diisi (maksimal 100 karakter)",
         );
     }
-    let mut transaction = match pool.begin().await {
-        Ok(transaction) => transaction,
-        Err(error) => {
-            log_error("delete_tournament_begin_transaction", error);
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Gagal memulai transaksi penghapusan turnamen",
-            );
-        }
-    };
     match sqlx::query("CALL pr_delete_tournament($1, $2)")
         .bind(actor_id)
         .bind(tournament_name)
-        .execute(&mut *transaction)
+        .execute(&pool)
         .await
     {
-        Ok(_) => match transaction.commit().await {
-            Ok(()) => message(
-                StatusCode::OK,
-                "Turnamen beserta seluruh data pendaftarannya berhasil dihapus!",
-            ),
-            Err(error) => {
-                log_error("delete_tournament_commit", error);
-                error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Gagal menyimpan penghapusan turnamen",
-                )
-            }
-        },
+        Ok(_) => message(
+            StatusCode::OK,
+            "Turnamen beserta seluruh data pendaftarannya berhasil dihapus!",
+        ),
         Err(error) => {
             let database_code = error
                 .as_database_error()
                 .and_then(|database_error| database_error.code())
                 .map(|code| code.into_owned());
             log_error("delete_tournament", error);
-            if let Err(rollback_error) = transaction.rollback().await {
-                log_error("delete_tournament_rollback", rollback_error);
-                return error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Penghapusan turnamen gagal dan transaksi tidak dapat dibatalkan",
-                );
-            }
             if database_code.as_deref() == Some("42501") {
                 error_response(
                     StatusCode::FORBIDDEN,
