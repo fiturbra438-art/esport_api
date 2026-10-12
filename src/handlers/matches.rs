@@ -1,5 +1,5 @@
 use axum::{
-    Json,
+    Extension, Json,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
@@ -7,6 +7,8 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use time::PrimitiveDateTime;
+
+use crate::auth::Claims;
 
 use super::response::{error_response, log_error, message};
 
@@ -25,8 +27,18 @@ pub struct CreateMatchDto {
 
 pub async fn create_match(
     State(pool): State<PgPool>,
+    Extension(claims): Extension<Claims>,
     Json(payload): Json<CreateMatchDto>,
 ) -> impl IntoResponse {
+    let actor_id = match claims.sub.parse::<i32>() {
+        Ok(user_id) if user_id > 0 => user_id,
+        _ => {
+            return error_response(
+                StatusCode::UNAUTHORIZED,
+                "Identitas pengguna pada token tidak valid",
+            );
+        }
+    };
     if !valid_name(&payload.tournament_name)
         || payload
             .team1_name
@@ -53,7 +65,8 @@ pub async fn create_match(
             );
         }
     };
-    if let Err(error) = sqlx::query("CALL pr_create_match($1, $2, $3, $4)")
+    if let Err(error) = sqlx::query("CALL pr_create_match($1, $2, $3, $4, $5)")
+        .bind(actor_id)
         .bind(payload.tournament_name)
         .bind(payload.team1_name)
         .bind(payload.team2_name)
@@ -61,6 +74,10 @@ pub async fn create_match(
         .execute(&mut *transaction)
         .await
     {
+        let forbidden = error
+            .as_database_error()
+            .and_then(|database_error| database_error.code())
+            .is_some_and(|code| code == "42501");
         log_error("create_match", error);
         if let Err(rollback_error) = transaction.rollback().await {
             log_error("create_match_rollback", rollback_error);
@@ -69,7 +86,14 @@ pub async fn create_match(
                 "Pembuatan pertandingan gagal dan transaksi tidak dapat dibatalkan",
             );
         }
-        return error_response(StatusCode::BAD_REQUEST, "Gagal membuat pertandingan");
+        return if forbidden {
+            error_response(
+                StatusCode::FORBIDDEN,
+                "Hanya admin yang dapat mengelola pertandingan",
+            )
+        } else {
+            error_response(StatusCode::BAD_REQUEST, "Gagal membuat pertandingan")
+        };
     }
     if let Err(error) = transaction.commit().await {
         log_error("create_match_commit", error);
@@ -126,9 +150,19 @@ pub struct UpdateScheduleDto {
 
 pub async fn update_match_schedule(
     State(pool): State<PgPool>,
+    Extension(claims): Extension<Claims>,
     Path(match_id): Path<i32>,
     Json(payload): Json<UpdateScheduleDto>,
 ) -> impl IntoResponse {
+    let actor_id = match claims.sub.parse::<i32>() {
+        Ok(user_id) if user_id > 0 => user_id,
+        _ => {
+            return error_response(
+                StatusCode::UNAUTHORIZED,
+                "Identitas pengguna pada token tidak valid",
+            );
+        }
+    };
     if match_id <= 0 {
         return error_response(StatusCode::BAD_REQUEST, "ID pertandingan harus positif");
     }
@@ -155,13 +189,12 @@ pub async fn update_match_schedule(
             );
         }
     };
-    let result = sqlx::query!(
-        "CALL pr_update_match_schedule($1, $2)",
-        match_id,
-        schedule_time
-    )
-    .execute(&mut *transaction)
-    .await;
+    let result = sqlx::query("CALL pr_update_match_schedule($1, $2, $3)")
+        .bind(actor_id)
+        .bind(match_id)
+        .bind(schedule_time)
+        .execute(&mut *transaction)
+        .await;
 
     match result {
         Ok(_) => match transaction.commit().await {
@@ -178,6 +211,10 @@ pub async fn update_match_schedule(
             }
         },
         Err(error) => {
+            let forbidden = error
+                .as_database_error()
+                .and_then(|database_error| database_error.code())
+                .is_some_and(|code| code == "42501");
             log_error("update_match_schedule", error);
             if let Err(rollback_error) = transaction.rollback().await {
                 log_error("update_match_schedule_rollback", rollback_error);
@@ -186,10 +223,17 @@ pub async fn update_match_schedule(
                     "Pembaruan jadwal gagal dan transaksi tidak dapat dibatalkan",
                 );
             }
-            error_response(
-                StatusCode::BAD_REQUEST,
-                "Gagal memperbarui jadwal pertandingan",
-            )
+            if forbidden {
+                error_response(
+                    StatusCode::FORBIDDEN,
+                    "Hanya admin yang dapat mengelola pertandingan",
+                )
+            } else {
+                error_response(
+                    StatusCode::BAD_REQUEST,
+                    "Gagal memperbarui jadwal pertandingan",
+                )
+            }
         }
     }
 }

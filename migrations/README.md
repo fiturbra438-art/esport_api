@@ -1,30 +1,18 @@
 # Database migrations
 
-SQLx runs these files in version order. Keep migration files in this directory
-and do not move or renumber migrations that may already have been applied.
-Unlike `database/`, this directory is a chronological change history, so it
-should not be split into feature subdirectories.
+SQLx runs these files in version order. This compact baseline is intended for a
+fresh or deliberately reset development database. Future changes should use
+new, higher-numbered migrations; do not edit a baseline after applying it.
 
 ## Migration history
 
 | Version | File | Purpose |
 | --- | --- | --- |
-| 000 | `000_create_initial_tables.sql` | Create the core tables and indexes. |
-| 001 | `001_add_match_schedule_and_teams.sql` | Add match scheduling and team-related schema. |
-| 002 | `002_add_procedures_and_views.sql` | Add initial business routines and API views. |
-| 003 | `003_remove_redundant_create_procedures.sql` | Remove create procedures that were no longer used. |
-| 004 | `004_add_triggers.sql` | Add captain-membership and tournament-registration triggers. |
-| 005 | `005_create_match_transaction_procedure.sql` | Add the match creation procedure. |
-| 006 | `006_move_create_transactions_to_sql.sql` | Move team and tournament creation logic into SQL functions. |
-| 007 | `007_add_create_transaction_procedures.sql` | Add procedures for create operations. |
-| 008 | `008_add_procedure_indexes.sql` | Add indexes used by procedures and foreign-key lookups. |
-| 009 | `009_lookup_ids_by_names.sql` | Add name-based lookups and procedure signatures. |
-| 010 | `010_wrap_business_functions_with_procedures.sql` | Keep business logic in functions and expose it through procedures. |
-| 011 | `011_hide_password_from_registration.sql` | Stop returning the stored password hash from registration. |
-| 012 | `012_move_duplicate_registration_check_to_function.sql` | Validate duplicate tournament entries in the business function and remove the redundant trigger. |
-| 013 | `013_add_tournament_team_capacity.sql` | Add required tournament team limits and enforce capacity during registration. |
-| 014 | `014_add_user_roles.sql` | Add user/admin roles; new and existing accounts default to user. |
-| 015 | `015_prevent_duplicate_tournaments.sql` | Prevent duplicate tournament names, ignoring case and surrounding spaces. |
+| 1 | `0001_schema.sql` | Create tables, indexes, and constraints. |
+| 2 | `0002_functions.sql` | Define database functions used by SQL procedures. |
+| 3 | `0003_triggers.sql` | Define trigger functions and triggers. |
+| 4 | `0004_views.sql` | Define API read views. |
+| 5 | `0005_procedures.sql` | Define transactional operations and authorization checks. |
 
 ## Current database definitions
 
@@ -37,15 +25,19 @@ The `database/` directory contains the organized, current SQL definitions:
 - `view.sql` — API read views.
 - `dcl.sql` — database roles and privileges.
 
-Edit an existing migration only before it has been applied/shared. For schema
-changes after that, add a new, higher-numbered migration. Keep the current
-definitions in `database/` aligned with the final migrated schema.
+The five files are separated by database object type and dependency order.
+Keep the current definitions in `database/` aligned with the baseline and
+future migrations.
 
-`POST /api/tournaments` requires a positive `max_teams` value. A tournament
-created before migration 013 with `total_slots = 0` remains unlimited for
-backward compatibility; newly created tournaments always have a finite limit.
-Only users with the `admin` role can create or delete tournaments. Promote a
-trusted account manually after registration; see the root `README.md`.
-Migration 015 fails with a descriptive error if existing tournament rows have
-duplicate names after trimming and case normalization; resolve those rows
-before restarting the application.
+Before switching a database that has recorded the old migration versions
+000–016, reset its development schema and data so SQLx can apply this new
+baseline. This repository does not reset databases automatically. Do not use
+this baseline on a database whose data must be preserved.
+
+`POST /api/tournaments` requires a positive `max_teams` value. Newly created
+tournaments always have a finite limit.
+Only users with the `admin` role can create or delete tournaments and manage
+matches. Team membership and captain operations are restricted to the
+authenticated user or team captain as appropriate. Stored procedures enforce
+these rules; the API calls them within transactions.
+Promote a trusted account manually after registration; see the root `README.md`.

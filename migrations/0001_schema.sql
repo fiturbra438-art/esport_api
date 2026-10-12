@@ -1,31 +1,42 @@
--- Struktur dasar database turnamen e-sport.
--- Migration ini harus dijalankan sebelum function, procedure, trigger, dan view.
-
-CREATE TABLE IF NOT EXISTS users (
+-- Users
+CREATE TABLE users (
     id SERIAL PRIMARY KEY,
     username VARCHAR(255) UNIQUE NOT NULL,
     mmr_point INTEGER DEFAULT 1000,
     password VARCHAR(255),
+    role VARCHAR(20) NOT NULL DEFAULT 'user'
+        CHECK (role IN ('user', 'admin')),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS tournaments (
+-- Tournaments
+CREATE TABLE tournaments (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     total_slots INTEGER NOT NULL DEFAULT 0,
     available_slots INTEGER NOT NULL DEFAULT 0,
     status VARCHAR(50) DEFAULT 'open',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CHECK (total_slots >= 0),
+    CHECK (available_slots >= 0 AND available_slots <= total_slots)
 );
 
-CREATE TABLE IF NOT EXISTS teams (
+CREATE UNIQUE INDEX uq_tournaments_name_normalized
+    ON tournaments (LOWER(BTRIM(name)));
+
+CREATE INDEX idx_tournaments_name
+    ON tournaments (name);
+
+-- Teams
+CREATE TABLE teams (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) UNIQUE NOT NULL,
     captain_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS team_members (
+-- Team members
+CREATE TABLE team_members (
     id SERIAL PRIMARY KEY,
     team_id INTEGER REFERENCES teams(id) ON DELETE CASCADE,
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -34,7 +45,8 @@ CREATE TABLE IF NOT EXISTS team_members (
     UNIQUE (team_id, user_id)
 );
 
-CREATE TABLE IF NOT EXISTS tournament_registrations (
+-- Tournament registrations
+CREATE TABLE tournament_registrations (
     id SERIAL PRIMARY KEY,
     tournament_id INTEGER REFERENCES tournaments(id) ON DELETE CASCADE,
     team_id INTEGER REFERENCES teams(id) ON DELETE CASCADE,
@@ -42,7 +54,8 @@ CREATE TABLE IF NOT EXISTS tournament_registrations (
     UNIQUE (tournament_id, team_id)
 );
 
-CREATE TABLE IF NOT EXISTS matches (
+-- Matches
+CREATE TABLE matches (
     id SERIAL PRIMARY KEY,
     tournament_id INTEGER REFERENCES tournaments(id) ON DELETE CASCADE,
     team_a_id INTEGER REFERENCES teams(id) ON DELETE SET NULL,
@@ -52,3 +65,25 @@ CREATE TABLE IF NOT EXISTS matches (
     round_number INTEGER,
     schedule_time TIMESTAMP
 );
+
+-- Indeks untuk pencarian prosedur, jadwal, dan aksi foreign key.
+CREATE INDEX idx_teams_captain_id
+    ON teams (captain_id);
+
+CREATE INDEX idx_team_members_user_id
+    ON team_members (user_id);
+
+CREATE INDEX idx_tournament_registrations_team_id
+    ON tournament_registrations (team_id);
+
+CREATE INDEX idx_matches_tournament_round
+    ON matches (tournament_id, round_number, id);
+
+CREATE INDEX idx_matches_team_a_id
+    ON matches (team_a_id);
+
+CREATE INDEX idx_matches_team_b_id
+    ON matches (team_b_id);
+
+CREATE INDEX idx_matches_winner_id
+    ON matches (winner_id);

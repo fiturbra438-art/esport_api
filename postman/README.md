@@ -1,106 +1,103 @@
 # Postman API tests
 
-## Run the collection
+## Which collection should I use?
+
+- **Esport API - Manual (VS Code)** is the cloud collection for sending individual
+  requests. Its main folders group requests by Auth & Users, Teams, Tournaments,
+  and Matches. Request scripts show the expected status and validate responses.
+- `esport-api.postman_collection.json` is the local sequential integration
+  collection. It creates test users and teams, exercises the API in order, and
+  deletes its test tournament at the end. Import it into Postman only when you
+  want to run the full integration flow.
+
+For manual work, do not run the whole cloud collection as a single sequence:
+some requests are examples or negative tests and require specific setup. Run
+only the request you need after its prerequisites.
+
+## Initial setup
 
 1. Start PostgreSQL and the API using the local setup in the root `README.md`.
-2. Register and promote an admin account as documented in the root README.
-   Set `adminUsername` and `adminPassword` in the active Postman environment;
-   mark `adminPassword` as a secret variable.
-3. Confirm the API responds at `http://127.0.0.1:8080/`.
-4. In Postman, select **Import** and import `esport-api.postman_collection.json`.
-5. Open the collection and use **Run** to run all requests in order.
-6. Review the **Test Results** tab in the Collection Runner.
+2. In Postman VS Code, select the **Esport API - Manual (VS Code)** collection
+   and the **Esport API - Local (VS Code)** environment. Set `baseUrl` to
+   `http://127.0.0.1:8080` (or the address where the API is running).
+3. Create or select an environment for credentials. Set the variables needed
+   by the requests you plan to run. Mark password variables as **secret**:
 
-The collection uses `baseUrl` as a collection variable. Change it if the API is
-running at a different address. Generated usernames and resource names include a
-timestamp, so the collection can be run repeatedly.
+   | Variable | Used for |
+   | --- | --- |
+   | `loginUsername`, `loginPassword` | General login request |
+   | `adminUsername`, `adminPassword` | Admin-only tournament operations |
+   | `captainUsername`, `captainPassword` | Captain-only registration tests |
+   | `memberUsername`, `memberPassword` | Non-captain authorization test |
+   | `secondCaptainUsername`, `secondCaptainPassword` | Second team in capacity test |
+   | `teamName` | Exact team name for the registration and captain tests |
+   | `firstTeamName`, `secondTeamName` | Exact names for the two capacity-test teams |
 
-Only `admin` accounts can create or delete tournaments. Tournament names are
-unique ignoring letter case and surrounding spaces; duplicate names return
-HTTP 409. The local integration collection tests this after creating a
-tournament. Register the intended
-admin account normally, promote it in pgAdmin using the SQL in the root
-`README.md`, then log in with that account in Postman before sending the
-tournament creation request. Registration always assigns the `user` role.
+   Keep credentials in the active environment; do not save real passwords in
+   the collection or share them.
+4. To create or delete tournaments, register an account and promote it to
+   `admin` as documented in the root `README.md`. Registration itself assigns
+   the `user` role.
+5. Select the environment before sending requests. The **Login** request saves
+   the access token to the collection variable `token` and the user's role to
+   `loginRole`; protected requests use that token. The specialized captain and
+   admin test logins save separate tokens (`captainToken`, `memberToken`, and
+   `adminToken`) so switching test identities does not overwrite each other.
 
-The tournament-creation request sets a one-team registration limit to verify
-that the first team is accepted and another team's registration is rejected
-when the tournament is full.
+## Running requests manually
 
-The **Esport API - Manual (VS Code)** collection also has a capacity workflow
-made up of requests with the `Capacity test` prefix:
+Use the folders as a guide:
 
-1. Create a one-slot tournament while logged in as an admin.
-2. Replace `REPLACE_WITH_FIRST_TEAM_NAME` and register that captain's team.
-3. Replace the username and password in the second-captain login request.
-4. Replace `REPLACE_WITH_SECOND_TEAM_NAME` and confirm the registration returns
-   HTTP 409 with `Kuota tim turnamen sudah penuh`.
+- **Auth & Users**: check API health, register an account, log in, and retrieve
+  a user profile.
+- **Teams**: create a team, view it, add/remove members, or transfer the
+  captaincy. Team names in request bodies must match the database.
+- **Tournaments**: list tournaments; admins can create/delete them, while only
+  the captain of a team can register that team. Tournament names and team names
+  must match exactly.
+- **Matches**: create a match between teams registered in the tournament, list
+  its matches, and set a schedule.
 
-The second team must be different from the first, and the logged-in user must
-captain the team being registered. The test login updates the collection's
-`token` variable, so log in again as the first captain before continuing with
-other protected requests. An additional request checks that `max_teams: 0` is
-rejected with HTTP 400.
+Requests named `CAPTAIN TEST` and `Admin TEST` are an optional authorization
+scenario. Set the account variables above and use a team whose captain and
+regular member accounts are both available. Run the admin login and temporary
+tournament creation before the captain's registration request, then run the
+member request to verify HTTP 403. The test tournament is not automatically
+deleted by this manual scenario; use the admin-only **Delete tournament**
+request when finished. Before sending it, set the collection variable
+`tournamentName` to the generated `captainTestTournament` value.
 
-## Quick tournament-registration workflow in Postman VS Code
+Requests prefixed `Capacity` and `Tournament - Reject duplicate name` are
+optional negative tests. The current capacity helper requests are in the
+**Teams** folder; use their `Capacity` names to identify them. Run the capacity
+requests manually in this order:
 
-Use the **Esport API - Pendaftaran Turnamen (VS Code)** collection from the
-Postman workspace for a guided registration test. Select or create an
-environment and set:
+1. Login as admin (CAPTAIN TEST 3), then **Capacity - Create one-slot
+   tournament**.
+2. Login as the first captain (CAPTAIN TEST 1), then **Capacity - Register
+   first team (201)**. Use `firstTeamName`.
+3. Send **Capacity - Login second captain**, then **Capacity - Reject
+   registration when full (409)**. Use a different team in `secondTeamName`.
+4. **Capacity - Reject max_teams=0 (400)** can be run while `adminToken` is
+   available.
+5. Finish with **Capacity - Delete test tournament** so test data is cleaned
+   up.
 
-- `adminUsername` and secret `adminPassword` for an account with the `admin`
-  role.
-- `captainUsername` and secret `captainPassword` for the captain of the team
-  being tested.
-- `memberUsername` and secret `memberPassword` for a regular member of that
-  same team.
-- `teamName` to the exact name of that team.
+A duplicate-name test must be sent after creating a tournament with the same
+name. Duplicate registration and full capacity expect HTTP 409; invalid
+`max_teams` expects HTTP 400.
 
-Set these values in the active environment; passwords are not stored in the
-collection. Set `baseUrl` there too if the API is not running at
-`http://127.0.0.1:8080`. Select the environment and run the collection in order.
-It creates a uniquely named tournament, tests successful and duplicate
-registration plus non-captain rejection, checks the remaining capacity, then
-deletes the temporary tournament. User and team records are not changed.
+## Running the local integration collection
 
-To manually test team registration in **Tournaments > Register team to
-tournament**:
+1. Import `esport-api.postman_collection.json`.
+2. Set `baseUrl` to the API address and set `adminUsername` and secret
+   `adminPassword` in the active environment.
+3. Run the full collection in order using the Collection Runner.
+4. Review the **Test Results** tab.
 
-1. Make sure the tournament already exists and has an available slot. Set the
-   collection's `tournamentName` variable to its exact name.
-2. Send **Login** with the credentials of the captain of the team. The request
-   saves the returned access token to the `token` collection variable.
-3. In the registration request body, replace `Team Alpha` with the exact team
-   name, then send the request. A successful registration returns HTTP 201.
-
-Only that team's captain can register it (HTTP 403 otherwise). A team already
-registered in the tournament or a full tournament returns HTTP 409. For a
-second registration attempt, first ensure the first request succeeded; the
-second attempt should return HTTP 409.
-
-The tests cover API health, user registration/login/profile, password omission
-from responses, rejection of protected mutations without a token and with an
-invalid token, team
-create/profile/join/duplicate join/captain transfer/member removal, tournament
-create/list/register/duplicate-registration/capacity rejection/delete, match
-create/list/scheduling, invalid schedule input, and a missing user profile.
-Tournament capacity is set to one team in the test run, so registering a
-different team's captain after the first registration must return HTTP 409.
-A repeated tournament registration must also return HTTP 409; the failed
-request is rolled back. The login test stores the JWT in the
-collection's `token` variable; protected requests use it as a Bearer token.
-
-The final request deletes the test tournament; PostgreSQL cascades this deletion
-to its registrations and matches. The API has no team or user deletion
-endpoints, so test users and teams remain in the database after each run.
-
-## Run one request manually
-
-Run requests in order. Later requests use IDs captured by earlier test scripts.
-Running a request by itself before its setup requests will likely fail because
-its required collection variables have not been set.
-
-The request scripts use Postman's `pm.test` API to check status codes and JSON
-shapes, and `pm.collectionVariables` to pass generated IDs between requests.
-Keep requests in order so the login step can populate the token before protected
-mutations run.
+The integration collection generates unique usernames and team/tournament
+names. It creates two users and two teams that remain in the database because
+the API has no user/team deletion endpoints. It creates a one-slot tournament,
+tests successful, duplicate, and full-capacity registration, creates and
+schedules a match, then deletes the temporary tournament. PostgreSQL cascades
+that tournament deletion to its registrations and matches.

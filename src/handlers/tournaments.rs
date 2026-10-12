@@ -35,47 +35,20 @@ pub struct TournamentResponse {
     pub available_slots: i32,
 }
 
-async fn require_admin(pool: &PgPool, claims: &Claims) -> Result<(), axum::response::Response> {
-    let user_id = match claims.sub.parse::<i32>() {
-        Ok(user_id) if user_id > 0 => user_id,
-        _ => {
-            return Err(error_response(
-                StatusCode::UNAUTHORIZED,
-                "Identitas pengguna pada token tidak valid",
-            ));
-        }
-    };
-
-    match sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS (SELECT 1 FROM users WHERE id = $1 AND role = 'admin')",
-    )
-    .bind(user_id)
-    .fetch_one(pool)
-    .await
-    {
-        Ok(true) => Ok(()),
-        Ok(false) => Err(error_response(
-            StatusCode::FORBIDDEN,
-            "Hanya admin yang dapat mengelola turnamen",
-        )),
-        Err(error) => {
-            log_error("verify_tournament_admin", error);
-            Err(error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Gagal memverifikasi hak akses admin",
-            ))
-        }
-    }
-}
-
 pub async fn create_tournament(
     State(pool): State<PgPool>,
     Extension(claims): Extension<Claims>,
     Json(payload): Json<CreateTournamentDto>,
 ) -> impl IntoResponse {
-    if let Err(response) = require_admin(&pool, &claims).await {
-        return response;
-    }
+    let actor_id = match claims.sub.parse::<i32>() {
+        Ok(user_id) if user_id > 0 => user_id,
+        _ => {
+            return error_response(
+                StatusCode::UNAUTHORIZED,
+                "Identitas pengguna pada token tidak valid",
+            );
+        }
+    };
     if !valid_name(&payload.name) || !valid_max_teams(payload.max_teams) {
         return error_response(
             StatusCode::BAD_REQUEST,
@@ -93,8 +66,9 @@ pub async fn create_tournament(
         }
     };
     let tournament = match sqlx::query_as::<_, TournamentResponse>(
-        "CALL pr_create_tournament($1, $2, NULL, NULL, NULL, NULL, NULL)",
+        "CALL pr_create_tournament($1, $2, $3, NULL, NULL, NULL, NULL, NULL)",
     )
+    .bind(actor_id)
     .bind(payload.name.trim())
     .bind(payload.max_teams)
     .fetch_one(&mut *transaction)
@@ -105,6 +79,10 @@ pub async fn create_tournament(
                 .as_database_error()
                 .and_then(|database_error| database_error.code())
                 .is_some_and(|code| code == "23505");
+            let forbidden = error
+                .as_database_error()
+                .and_then(|database_error| database_error.code())
+                .is_some_and(|code| code == "42501");
             log_error("create_tournament", error);
             if let Err(rollback_error) = transaction.rollback().await {
                 log_error("create_tournament_rollback", rollback_error);
@@ -113,7 +91,12 @@ pub async fn create_tournament(
                     "Pembuatan turnamen gagal dan transaksi tidak dapat dibatalkan",
                 );
             }
-            return if duplicate {
+            return if forbidden {
+                error_response(
+                    StatusCode::FORBIDDEN,
+                    "Hanya admin yang dapat mengelola turnamen",
+                )
+            } else if duplicate {
                 error_response(StatusCode::CONFLICT, "Nama turnamen sudah digunakan")
             } else {
                 error_response(StatusCode::BAD_REQUEST, "Gagal membuat turnamen")
@@ -170,7 +153,7 @@ pub async fn register_tournament(
             "Nama turnamen dan tim wajib diisi (maksimal 100 karakter)",
         );
     }
-    let user_id = match claims.sub.parse::<i32>() {
+    let actor_id = match claims.sub.parse::<i32>() {
         Ok(user_id) if user_id > 0 => user_id,
         _ => {
             return error_response(
@@ -191,55 +174,8 @@ pub async fn register_tournament(
         }
     };
 
-    let captain_id = match sqlx::query_scalar::<_, Option<i32>>(
-        "SELECT captain_id FROM teams WHERE name = $1 FOR UPDATE",
-    )
-    .bind(&payload.team_name)
-    .fetch_optional(&mut *transaction)
-    .await
-    {
-        Ok(Some(captain_id)) => captain_id,
-        Ok(None) => {
-            if let Err(error) = transaction.rollback().await {
-                log_error("register_tournament_team_lookup_rollback", error);
-                return error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Pendaftaran gagal dan transaksi tidak dapat dibatalkan",
-                );
-            }
-            return error_response(StatusCode::NOT_FOUND, "Tim tidak ditemukan");
-        }
-        Err(error) => {
-            log_error("register_tournament_team_lookup", error);
-            if let Err(rollback_error) = transaction.rollback().await {
-                log_error("register_tournament_team_lookup_rollback", rollback_error);
-                return error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Pendaftaran gagal dan transaksi tidak dapat dibatalkan",
-                );
-            }
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Gagal memverifikasi kapten tim",
-            );
-        }
-    };
-
-    if captain_id != Some(user_id) {
-        if let Err(error) = transaction.rollback().await {
-            log_error("register_tournament_authorization_rollback", error);
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Pendaftaran gagal dan transaksi tidak dapat dibatalkan",
-            );
-        }
-        return error_response(
-            StatusCode::FORBIDDEN,
-            "Hanya kapten tim yang dapat mendaftarkan tim ini",
-        );
-    }
-
-    let result = sqlx::query("CALL pr_register_team_to_tournament($1, $2)")
+    let result = sqlx::query("CALL pr_register_team_to_tournament($1, $2, $3)")
+        .bind(actor_id)
         .bind(&payload.tournament_name)
         .bind(&payload.team_name)
         .execute(&mut *transaction)
@@ -252,6 +188,8 @@ pub async fn register_tournament(
             .map(|code| code.into_owned());
         let duplicate = database_code.as_deref() == Some("23505");
         let full = database_code.as_deref() == Some("23514");
+        let forbidden = database_code.as_deref() == Some("42501");
+        let team_missing = database_code.as_deref() == Some("P0002");
         log_error("register_tournament", error);
         if let Err(rollback_error) = transaction.rollback().await {
             log_error("register_tournament_rollback", rollback_error);
@@ -260,7 +198,14 @@ pub async fn register_tournament(
                 "Pendaftaran gagal dan transaksi tidak dapat dibatalkan",
             );
         }
-        return if duplicate {
+        return if forbidden {
+            error_response(
+                StatusCode::FORBIDDEN,
+                "Hanya kapten tim yang dapat mendaftarkan tim ini",
+            )
+        } else if team_missing {
+            error_response(StatusCode::NOT_FOUND, "Tim tidak ditemukan")
+        } else if duplicate {
             error_response(
                 StatusCode::CONFLICT,
                 "Tim sudah terdaftar pada turnamen ini",
@@ -295,9 +240,15 @@ pub async fn delete_tournament(
     Extension(claims): Extension<Claims>,
     Path(tournament_name): Path<String>,
 ) -> impl IntoResponse {
-    if let Err(response) = require_admin(&pool, &claims).await {
-        return response;
-    }
+    let actor_id = match claims.sub.parse::<i32>() {
+        Ok(user_id) if user_id > 0 => user_id,
+        _ => {
+            return error_response(
+                StatusCode::UNAUTHORIZED,
+                "Identitas pengguna pada token tidak valid",
+            );
+        }
+    };
     if !valid_name(&tournament_name) {
         return error_response(
             StatusCode::BAD_REQUEST,
@@ -314,7 +265,8 @@ pub async fn delete_tournament(
             );
         }
     };
-    match sqlx::query("CALL pr_delete_tournament($1)")
+    match sqlx::query("CALL pr_delete_tournament($1, $2)")
+        .bind(actor_id)
         .bind(tournament_name)
         .execute(&mut *transaction)
         .await
@@ -333,6 +285,10 @@ pub async fn delete_tournament(
             }
         },
         Err(error) => {
+            let database_code = error
+                .as_database_error()
+                .and_then(|database_error| database_error.code())
+                .map(|code| code.into_owned());
             log_error("delete_tournament", error);
             if let Err(rollback_error) = transaction.rollback().await {
                 log_error("delete_tournament_rollback", rollback_error);
@@ -341,7 +297,14 @@ pub async fn delete_tournament(
                     "Penghapusan turnamen gagal dan transaksi tidak dapat dibatalkan",
                 );
             }
-            error_response(StatusCode::NOT_FOUND, "Gagal menghapus turnamen")
+            if database_code.as_deref() == Some("42501") {
+                error_response(
+                    StatusCode::FORBIDDEN,
+                    "Hanya admin yang dapat mengelola turnamen",
+                )
+            } else {
+                error_response(StatusCode::NOT_FOUND, "Gagal menghapus turnamen")
+            }
         }
     }
 }

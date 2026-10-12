@@ -1,11 +1,13 @@
 use axum::{
-    Json,
+    Extension, Json,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+
+use crate::auth::Claims;
 
 use super::response::{error_response, log_error, message};
 
@@ -29,6 +31,7 @@ pub struct TeamResponse {
 
 pub async fn create_team(
     State(pool): State<PgPool>,
+    Extension(claims): Extension<Claims>,
     Json(payload): Json<CreateTeamDto>,
 ) -> impl IntoResponse {
     if !valid_name(&payload.name) || !valid_name(&payload.captain_username) {
@@ -37,6 +40,15 @@ pub async fn create_team(
             "Nama tim dan username kapten wajib diisi (maksimal 100 karakter)",
         );
     }
+    let actor_id = match claims.sub.parse::<i32>() {
+        Ok(user_id) if user_id > 0 => user_id,
+        _ => {
+            return error_response(
+                StatusCode::UNAUTHORIZED,
+                "Identitas pengguna pada token tidak valid",
+            );
+        }
+    };
     let mut transaction = match pool.begin().await {
         Ok(transaction) => transaction,
         Err(error) => {
@@ -47,26 +59,39 @@ pub async fn create_team(
             );
         }
     };
-    let team =
-        match sqlx::query_as::<_, TeamResponse>("CALL pr_create_team($1, $2, NULL, NULL, NULL)")
-            .bind(payload.name)
-            .bind(payload.captain_username)
-            .fetch_one(&mut *transaction)
-            .await
-        {
-            Ok(team) => team,
-            Err(error) => {
-                log_error("create_team", error);
-                if let Err(rollback_error) = transaction.rollback().await {
-                    log_error("create_team_rollback", rollback_error);
-                    return error_response(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "Pembuatan tim gagal dan transaksi tidak dapat dibatalkan",
-                    );
-                }
-                return error_response(StatusCode::BAD_REQUEST, "Gagal membuat tim");
+    let team = match sqlx::query_as::<_, TeamResponse>(
+        "CALL pr_create_team($1, $2, $3, NULL, NULL, NULL)",
+    )
+    .bind(actor_id)
+    .bind(payload.name)
+    .bind(payload.captain_username)
+    .fetch_one(&mut *transaction)
+    .await
+    {
+        Ok(team) => team,
+        Err(error) => {
+            let forbidden = error
+                .as_database_error()
+                .and_then(|database_error| database_error.code())
+                .is_some_and(|code| code == "42501");
+            log_error("create_team", error);
+            if let Err(rollback_error) = transaction.rollback().await {
+                log_error("create_team_rollback", rollback_error);
+                return error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Pembuatan tim gagal dan transaksi tidak dapat dibatalkan",
+                );
             }
-        };
+            return if forbidden {
+                error_response(
+                    StatusCode::FORBIDDEN,
+                    "Kapten tim harus merupakan pengguna yang sedang login",
+                )
+            } else {
+                error_response(StatusCode::BAD_REQUEST, "Gagal membuat tim")
+            };
+        }
+    };
     if let Err(error) = transaction.commit().await {
         log_error("create_team_commit", error);
         return error_response(StatusCode::INTERNAL_SERVER_ERROR, "Gagal menyimpan tim");
@@ -90,6 +115,7 @@ pub struct JoinTeamDto {
 
 pub async fn join_team(
     State(pool): State<PgPool>,
+    Extension(claims): Extension<Claims>,
     Json(payload): Json<JoinTeamDto>,
 ) -> impl IntoResponse {
     if !valid_name(&payload.team_name) || !valid_name(&payload.username) {
@@ -98,6 +124,15 @@ pub async fn join_team(
             "Nama tim dan username wajib diisi (maksimal 100 karakter)",
         );
     }
+    let actor_id = match claims.sub.parse::<i32>() {
+        Ok(user_id) if user_id > 0 => user_id,
+        _ => {
+            return error_response(
+                StatusCode::UNAUTHORIZED,
+                "Identitas pengguna pada token tidak valid",
+            );
+        }
+    };
     let mut transaction = match pool.begin().await {
         Ok(transaction) => transaction,
         Err(error) => {
@@ -108,7 +143,8 @@ pub async fn join_team(
             );
         }
     };
-    let result = sqlx::query("CALL pr_add_team_member($1, $2)")
+    let result = sqlx::query("CALL pr_add_team_member($1, $2, $3)")
+        .bind(actor_id)
         .bind(payload.team_name)
         .bind(payload.username)
         .execute(&mut *transaction)
@@ -129,6 +165,10 @@ pub async fn join_team(
             }
         },
         Err(error) => {
+            let forbidden = error
+                .as_database_error()
+                .and_then(|database_error| database_error.code())
+                .is_some_and(|code| code == "42501");
             log_error("join_team", error);
             if let Err(rollback_error) = transaction.rollback().await {
                 log_error("join_team_rollback", rollback_error);
@@ -137,7 +177,14 @@ pub async fn join_team(
                     "Penambahan anggota gagal dan transaksi tidak dapat dibatalkan",
                 );
             }
-            error_response(StatusCode::BAD_REQUEST, "Gagal menambahkan anggota ke tim")
+            if forbidden {
+                error_response(
+                    StatusCode::FORBIDDEN,
+                    "Username anggota harus merupakan pengguna yang sedang login",
+                )
+            } else {
+                error_response(StatusCode::BAD_REQUEST, "Gagal menambahkan anggota ke tim")
+            }
         }
     }
 }
@@ -211,6 +258,7 @@ pub struct RemoveMemberDto {
 
 pub async fn remove_team_member(
     State(pool): State<PgPool>,
+    Extension(claims): Extension<Claims>,
     Json(payload): Json<RemoveMemberDto>,
 ) -> impl IntoResponse {
     if !valid_name(&payload.team_name) || !valid_name(&payload.username) {
@@ -219,6 +267,15 @@ pub async fn remove_team_member(
             "Nama tim dan username wajib diisi (maksimal 100 karakter)",
         );
     }
+    let actor_id = match claims.sub.parse::<i32>() {
+        Ok(user_id) if user_id > 0 => user_id,
+        _ => {
+            return error_response(
+                StatusCode::UNAUTHORIZED,
+                "Identitas pengguna pada token tidak valid",
+            );
+        }
+    };
     let mut transaction = match pool.begin().await {
         Ok(transaction) => transaction,
         Err(error) => {
@@ -229,7 +286,8 @@ pub async fn remove_team_member(
             );
         }
     };
-    let result = sqlx::query("CALL pr_remove_team_member($1, $2)")
+    let result = sqlx::query("CALL pr_remove_team_member($1, $2, $3)")
+        .bind(actor_id)
         .bind(payload.team_name)
         .bind(payload.username)
         .execute(&mut *transaction)
@@ -247,6 +305,10 @@ pub async fn remove_team_member(
             }
         },
         Err(error) => {
+            let database_code = error
+                .as_database_error()
+                .and_then(|database_error| database_error.code())
+                .map(|code| code.into_owned());
             log_error("remove_team_member", error);
             if let Err(rollback_error) = transaction.rollback().await {
                 log_error("remove_team_member_rollback", rollback_error);
@@ -255,7 +317,16 @@ pub async fn remove_team_member(
                     "Penghapusan anggota gagal dan transaksi tidak dapat dibatalkan",
                 );
             }
-            error_response(StatusCode::BAD_REQUEST, "Gagal menghapus anggota tim")
+            if database_code.as_deref() == Some("42501") {
+                error_response(
+                    StatusCode::FORBIDDEN,
+                    "Hanya kapten tim yang dapat menghapus anggota",
+                )
+            } else if database_code.as_deref() == Some("P0002") {
+                error_response(StatusCode::NOT_FOUND, "Tim tidak ditemukan")
+            } else {
+                error_response(StatusCode::BAD_REQUEST, "Gagal menghapus anggota tim")
+            }
         }
     }
 }
@@ -268,6 +339,7 @@ pub struct TransferCaptainDto {
 
 pub async fn transfer_captain(
     State(pool): State<PgPool>,
+    Extension(claims): Extension<Claims>,
     Json(payload): Json<TransferCaptainDto>,
 ) -> impl IntoResponse {
     if !valid_name(&payload.team_name) || !valid_name(&payload.new_captain_username) {
@@ -276,6 +348,15 @@ pub async fn transfer_captain(
             "Nama tim dan username kapten baru wajib diisi (maksimal 100 karakter)",
         );
     }
+    let actor_id = match claims.sub.parse::<i32>() {
+        Ok(user_id) if user_id > 0 => user_id,
+        _ => {
+            return error_response(
+                StatusCode::UNAUTHORIZED,
+                "Identitas pengguna pada token tidak valid",
+            );
+        }
+    };
     let mut transaction = match pool.begin().await {
         Ok(transaction) => transaction,
         Err(error) => {
@@ -286,7 +367,8 @@ pub async fn transfer_captain(
             );
         }
     };
-    let result = sqlx::query("CALL pr_transfer_captain($1, $2)")
+    let result = sqlx::query("CALL pr_transfer_captain($1, $2, $3)")
+        .bind(actor_id)
         .bind(payload.team_name)
         .bind(payload.new_captain_username)
         .execute(&mut *transaction)
@@ -307,6 +389,10 @@ pub async fn transfer_captain(
             }
         },
         Err(error) => {
+            let database_code = error
+                .as_database_error()
+                .and_then(|database_error| database_error.code())
+                .map(|code| code.into_owned());
             log_error("transfer_captain", error);
             if let Err(rollback_error) = transaction.rollback().await {
                 log_error("transfer_captain_rollback", rollback_error);
@@ -315,7 +401,16 @@ pub async fn transfer_captain(
                     "Perpindahan kapten gagal dan transaksi tidak dapat dibatalkan",
                 );
             }
-            error_response(StatusCode::BAD_REQUEST, "Gagal memindahkan kapten tim")
+            if database_code.as_deref() == Some("42501") {
+                error_response(
+                    StatusCode::FORBIDDEN,
+                    "Hanya kapten tim yang dapat memindahkan jabatan kapten",
+                )
+            } else if database_code.as_deref() == Some("P0002") {
+                error_response(StatusCode::NOT_FOUND, "Tim tidak ditemukan")
+            } else {
+                error_response(StatusCode::BAD_REQUEST, "Gagal memindahkan kapten tim")
+            }
         }
     }
 }

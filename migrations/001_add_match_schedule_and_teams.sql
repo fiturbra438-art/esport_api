@@ -1,2 +1,0 @@
-ALTER TABLE matches
-    ADD COLUMN IF NOT EXISTS schedule_time TIMESTAMP;

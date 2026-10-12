@@ -4,7 +4,7 @@ REST API untuk mengelola player, tim, turnamen, dan jadwal pertandingan e-sport.
 
 ## Fitur
 
-- Role `user` dan `admin`; hanya admin dapat membuat atau menghapus turnamen.
+- Role `user` dan `admin`; hanya admin dapat mengelola turnamen dan pertandingan.
 - Registrasi dan profil player.
 - Login dengan JWT Bearer untuk semua operasi yang mengubah data.
 - Validasi input dan password hashing Argon2.
@@ -118,7 +118,7 @@ Semua body request menggunakan JSON.
 
 Daftarkan akun lewat `POST /api/users` seperti pengguna biasa, lalu promosikan
 akun yang dipercaya melalui pgAdmin Query Tool. Pastikan API sudah dijalankan
-setelah perubahan kode agar migrasi 014 menambahkan kolom `role`:
+setelah baseline database diterapkan agar kolom `role` tersedia:
 
 ```sql
 UPDATE users
@@ -160,11 +160,17 @@ index sehingga request bersamaan juga tidak dapat membuat nama yang sama.
 Registrasi dan login bersifat publik. Semua endpoint yang mengubah data
 (pembuatan/pengelolaan tim, turnamen, pertandingan) memerlukan header
 `Authorization: Bearer <access_token>`. Token JWT berlaku selama satu jam.
-Endpoint GET tetap publik. Pembuatan dan penghapusan turnamen hanya bisa
-dilakukan role `admin`; pengguna biasa menerima HTTP 403. Pendaftaran tim ke
-turnamen hanya dapat dilakukan oleh kapten tim yang sedang didaftarkan.
-Backend mengambil ID pengguna dari JWT, mengunci baris tim selama pemeriksaan
-dan pendaftaran, serta mengembalikan HTTP 403 jika pengguna bukan kapten.
+Endpoint GET tetap publik. Pembuatan dan penghapusan turnamen serta pengelolaan pertandingan hanya bisa
+dilakukan role `admin`; pengguna biasa menerima HTTP 403. Pembuatan tim
+menetapkan pengguna yang sedang login sebagai kapten, dan endpoint gabung tim
+hanya dapat mendaftarkan akun yang sedang login. Penghapusan anggota dan
+perpindahan kapten hanya dapat dilakukan oleh kapten tim; pengguna lain
+menerima HTTP 403. Pendaftaran tim ke turnamen juga hanya dapat dilakukan oleh
+kapten tim yang sedang didaftarkan.
+API meneruskan ID pengguna dari JWT ke stored procedure. Procedure memeriksa
+role admin atau kapten sebelum mutasi, mengunci baris tim selama operasi yang
+memerlukan pemeriksaan kapten, dan mengembalikan HTTP 403 bila akses ditolak.
+Setiap pemanggilan procedure tersebut dijalankan dalam transaksi.
 
 Username registrasi dibatasi 3-32 karakter (huruf, angka, `_`, `-`), password
 12-128 byte, MMR 0-100000, nama resource 1-100 karakter, dan nomor ronde serta
@@ -208,14 +214,20 @@ Petunjuk lengkap ada di [`postman/README.md`](./postman/README.md).
 
 ## Database
 
-File migrasi di `migrations/` dijalankan berurutan. Folder tetap flat agar kompatibel dengan SQLx; indeks dan ringkasan migrasi tersedia di [`migrations/README.md`](./migrations/README.md). Saat API dijalankan, SQLx menerapkan migrasi yang belum terpasang. Untuk menjalankannya secara manual gunakan `sqlx migrate run`.
+Folder `migrations/` berisi baseline SQLx modular yang dijalankan saat API mulai.
+Baseline ini untuk database baru atau database development yang memang akan
+di-reset. Database yang sudah memakai migrasi versi 000–016 perlu di-reset
+sebelum memakai baseline baru. Untuk menjalankan migrasi manual gunakan
+`sqlx migrate run`; detail ada di [`migrations/README.md`](./migrations/README.md).
 
 Jika memakai role database terpisah, buat role dengan `CREATE ROLE esport_app LOGIN;`,
 lalu atur password secara interaktif dengan `\password esport_app` di `psql` sebelum menjalankan
 [`database/dcl.sql`](./database/dcl.sql). File tersebut hanya memberikan grants
 dan tidak lagi menetapkan password bawaan.
 
-Migrasi `008_add_procedure_indexes.sql` menambahkan indeks untuk pencarian jadwal pertandingan dan kolom foreign key yang digunakan saat mengelola anggota, pendaftaran, serta penghapusan data terkait. Constraint unik pada pasangan anggota tim dan pendaftaran turnamen tetap menjadi perlindungan terakhir untuk mencegah duplikasi. Migrasi `009_lookup_ids_by_names.sql` menambahkan indeks nama turnamen dan mengubah prosedur terkait agar menerima username/nama alih-alih ID. Migrasi `010_wrap_business_functions_with_procedures.sql` mempertahankan fungsi bisnis dan membungkusnya dengan stored procedure, termasuk prosedur registrasi pengguna. Migrasi `012_move_duplicate_registration_check_to_function.sql` memindahkan pemeriksaan pendaftaran ganda ke function registrasi, yang tetap dipanggil oleh procedure; endpoint menjalankan pemanggilan procedure dalam transaksi dan membatalkan transaksi jika terjadi error. Trigger lain tetap dipakai untuk sinkronisasi anggota kapten dan penghitung pendaftaran.
+Baseline dibagi menjadi beberapa file pendek sesuai jenis objek database:
+schema, functions, triggers, views, lalu procedures. Perubahan schema
+berikutnya dibuat sebagai migrasi baru dengan versi lebih tinggi.
 
 ## CI
 
