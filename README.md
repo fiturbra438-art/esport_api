@@ -105,7 +105,7 @@ Semua body request menggunakan JSON.
 | `POST` | `/api/teams/join` | `{"team_name":"Team Alpha","username":"player2"}` |
 | `DELETE` | `/api/teams/members` | `{"team_name":"Team Alpha","username":"player2"}` |
 | `PUT` | `/api/teams/captain` | `{"team_name":"Team Alpha","new_captain_username":"player2"}` |
-| `POST` | `/api/tournaments` | `{"name":"Summer Cup"}` |
+| `POST` | `/api/tournaments` | `{"name":"Summer Cup","max_teams":8}` |
 | `GET` | `/api/tournaments` | - |
 | `DELETE` | `/api/tournaments/{name}` | - |
 | `POST` | `/api/tournaments/register` | `{"tournament_name":"Summer Cup","team_name":"Team Alpha"}` |
@@ -128,20 +128,22 @@ Invoke-RestMethod `
   -Uri http://127.0.0.1:8080/api/tournaments `
   -ContentType 'application/json' `
   -Headers @{ Authorization = "Bearer $token" } `
-  -Body '{"name":"Summer Cup"}'
+  -Body '{"name":"Summer Cup","max_teams":8}'
 ```
 
 Registrasi dan login bersifat publik. Semua endpoint yang mengubah data
 (pembuatan/pengelolaan tim, turnamen, pertandingan) memerlukan header
 `Authorization: Bearer <access_token>`. Token JWT berlaku selama satu jam.
-Endpoint GET tetap publik. Token membuktikan identitas akun, tetapi belum
-menerapkan kepemilikan resource atau peran kapten/admin; skema saat ini belum
-menyediakan relasi otorisasi tersebut.
+Endpoint GET tetap publik. Pendaftaran tim ke turnamen hanya dapat dilakukan
+oleh kapten tim yang sedang didaftarkan. Backend mengambil ID pengguna dari JWT,
+mengunci baris tim selama pemeriksaan dan pendaftaran, serta mengembalikan HTTP
+403 jika pengguna bukan kapten.
 
 Username registrasi dibatasi 3-32 karakter (huruf, angka, `_`, `-`), password
 12-128 byte, MMR 0-100000, nama resource 1-100 karakter, dan nomor ronde serta
-ID harus positif. Error database dicatat di log server dan respons hanya
-berisi pesan umum, bukan detail SQL.
+ID harus positif. `max_teams` wajib berupa bilangan bulat positif. Pendaftaran
+ditolak dengan HTTP 409 ketika kuota turnamen penuh. Error database dicatat di
+log server dan respons hanya berisi pesan umum, bukan detail SQL.
 
 Kata sandi akun lama yang tersimpan sebagai plaintext tidak dapat login setelah
 hash Argon2 diberlakukan. Saat ini belum ada endpoint reset password, sehingga

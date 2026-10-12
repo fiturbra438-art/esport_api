@@ -115,16 +115,24 @@ $$;
 -- Prosedur turnamen membungkus function operasi turnamen.
 CREATE PROCEDURE pr_create_tournament(
     IN p_name TEXT,
+    IN p_max_teams INTEGER,
     OUT id INTEGER,
     OUT name VARCHAR,
-    OUT status VARCHAR
+    OUT status VARCHAR,
+    OUT total_slots INTEGER,
+    OUT available_slots INTEGER
 )
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    SELECT created_tournament.id, created_tournament.name, created_tournament.status
-    INTO id, name, status
-    FROM fn_create_tournament(p_name) AS created_tournament;
+    SELECT
+        created_tournament.id,
+        created_tournament.name,
+        created_tournament.status,
+        created_tournament.total_slots,
+        created_tournament.available_slots
+    INTO id, name, status, total_slots, available_slots
+    FROM fn_create_tournament(p_name, p_max_teams) AS created_tournament;
 END;
 $$;
 

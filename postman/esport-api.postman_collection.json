@@ -732,6 +732,8 @@
               "    const data = pm.response.json().data;",
               "    pm.expect(data.name).to.eql(pm.collectionVariables.get('tournamentName'));",
               "    pm.expect(data.id).to.be.a('number');",
+              "    pm.expect(data.total_slots).to.eql(1);",
+              "    pm.expect(data.available_slots).to.eql(1);",
               "    pm.collectionVariables.set('tournamentId', String(data.id));",
               "});"
             ]
@@ -748,7 +750,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"name\": \"{{tournamentName}}\"\n}",
+          "raw": "{\n  \"name\": \"{{tournamentName}}\",\n  \"max_teams\": 1\n}",
           "options": {
             "raw": {
               "language": "json"
@@ -839,7 +841,91 @@
       }
     },
     {
-      "name": "13a. Reject duplicate tournament registration",
+      "name": "13a. Login as Beta captain",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Login kapten Beta berhasil', function () {",
+              "    pm.response.to.have.status(200);",
+              "    const body = pm.response.json();",
+              "    pm.expect(body.access_token).to.be.a('string').and.not.empty;",
+              "    pm.collectionVariables.set('betaToken', body.access_token);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{memberUsername}}\",\n  \"password\": \"{{demoPassword}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/api/auth/login"
+      }
+    },
+    {
+      "name": "13b. Reject registration when tournament is full",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Pendaftaran ditolak saat kuota turnamen penuh', function () {",
+              "    pm.response.to.have.status(409);",
+              "    pm.expect(pm.response.json().error).to.eql('Kuota tim turnamen sudah penuh');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"tournament_name\": \"{{tournamentName}}\",\n  \"team_name\": \"{{teamBeta}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/api/tournaments/register",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{betaToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "13c. Reject duplicate tournament registration",
       "event": [
         {
           "listen": "test",

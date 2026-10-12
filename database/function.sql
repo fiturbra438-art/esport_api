@@ -153,15 +153,31 @@ $$;
 
 -- Tournament functions
 DROP FUNCTION IF EXISTS fn_create_tournament(TEXT);
-CREATE FUNCTION fn_create_tournament(p_name TEXT)
-RETURNS TABLE(id INTEGER, name VARCHAR, status VARCHAR)
+CREATE FUNCTION fn_create_tournament(p_name TEXT, p_max_teams INTEGER)
+RETURNS TABLE(
+    id INTEGER,
+    name VARCHAR,
+    status VARCHAR,
+    total_slots INTEGER,
+    available_slots INTEGER
+)
 LANGUAGE plpgsql
 AS $$
 BEGIN
+    IF p_max_teams IS NULL OR p_max_teams <= 0 THEN
+        RAISE EXCEPTION 'Jumlah maksimal tim harus lebih dari 0'
+            USING ERRCODE = '22023';
+    END IF;
+
     RETURN QUERY
     INSERT INTO tournaments (name, total_slots, available_slots, status)
-    VALUES (p_name, 0, 0, 'open')
-    RETURNING tournaments.id, tournaments.name, tournaments.status;
+    VALUES (p_name, p_max_teams, p_max_teams, 'open')
+    RETURNING
+        tournaments.id,
+        tournaments.name,
+        tournaments.status,
+        tournaments.total_slots,
+        tournaments.available_slots;
 END;
 $$;
 
@@ -173,7 +189,21 @@ CREATE FUNCTION fn_register_team_to_tournament(
 RETURNS VOID
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    v_total_slots INTEGER;
+    v_available_slots INTEGER;
 BEGIN
+    SELECT total_slots, available_slots
+    INTO v_total_slots, v_available_slots
+    FROM tournaments
+    WHERE id = p_tournament_id
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Turnamen dengan ID % tidak ditemukan', p_tournament_id
+            USING ERRCODE = 'P0002';
+    END IF;
+
     IF EXISTS (
         SELECT 1
         FROM tournament_registrations
@@ -182,6 +212,11 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'Tim sudah terdaftar pada turnamen ini'
             USING ERRCODE = '23505';
+    END IF;
+
+    IF v_total_slots > 0 AND v_available_slots <= 0 THEN
+        RAISE EXCEPTION 'Kuota tim turnamen sudah penuh'
+            USING ERRCODE = '23514';
     END IF;
 
     INSERT INTO tournament_registrations (tournament_id, team_id)

@@ -1,11 +1,13 @@
 use axum::{
-    Json,
+    Extension, Json,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+
+use crate::auth::Claims;
 
 use super::response::{error_response, log_error, message};
 
@@ -14,9 +16,14 @@ fn valid_name(value: &str) -> bool {
     !value.is_empty() && value.chars().count() <= 100
 }
 
+fn valid_max_teams(max_teams: i32) -> bool {
+    max_teams > 0
+}
+
 #[derive(Deserialize)]
 pub struct CreateTournamentDto {
     pub name: String,
+    pub max_teams: i32,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -24,22 +31,25 @@ pub struct TournamentResponse {
     pub id: i32,
     pub name: String,
     pub status: Option<String>,
+    pub total_slots: i32,
+    pub available_slots: i32,
 }
 
 pub async fn create_tournament(
     State(pool): State<PgPool>,
     Json(payload): Json<CreateTournamentDto>,
 ) -> impl IntoResponse {
-    if !valid_name(&payload.name) {
+    if !valid_name(&payload.name) || !valid_max_teams(payload.max_teams) {
         return error_response(
             StatusCode::BAD_REQUEST,
-            "Nama turnamen wajib diisi (maksimal 100 karakter)",
+            "Nama turnamen wajib diisi (maksimal 100 karakter) dan max_teams harus lebih dari 0",
         );
     }
     let tournament = match sqlx::query_as::<_, TournamentResponse>(
-        "CALL pr_create_tournament($1, NULL, NULL, NULL)",
+        "CALL pr_create_tournament($1, $2, NULL, NULL, NULL, NULL)",
     )
     .bind(payload.name)
+    .bind(payload.max_teams)
     .fetch_one(&pool)
     .await
     {
@@ -57,7 +67,9 @@ pub async fn create_tournament(
 }
 
 pub async fn get_tournaments(State(pool): State<PgPool>) -> impl IntoResponse {
-    match sqlx::query_as!(TournamentResponse, "SELECT id AS \"id!\", name AS \"name!\", status FROM vw_tournaments")
+    match sqlx::query_as::<_, TournamentResponse>(
+        "SELECT id, name, status, total_slots, available_slots FROM vw_tournaments",
+    )
         .fetch_all(&pool)
         .await
     {
@@ -80,6 +92,7 @@ pub struct RegisterTournamentDto {
 
 pub async fn register_tournament(
     State(pool): State<PgPool>,
+    Extension(claims): Extension<Claims>,
     Json(payload): Json<RegisterTournamentDto>,
 ) -> impl IntoResponse {
     if !valid_name(&payload.tournament_name) || !valid_name(&payload.team_name) {
@@ -88,6 +101,16 @@ pub async fn register_tournament(
             "Nama turnamen dan tim wajib diisi (maksimal 100 karakter)",
         );
     }
+    let user_id = match claims.sub.parse::<i32>() {
+        Ok(user_id) if user_id > 0 => user_id,
+        _ => {
+            return error_response(
+                StatusCode::UNAUTHORIZED,
+                "Identitas pengguna pada token tidak valid",
+            );
+        }
+    };
+
     let mut transaction = match pool.begin().await {
         Ok(transaction) => transaction,
         Err(error) => {
@@ -99,17 +122,67 @@ pub async fn register_tournament(
         }
     };
 
+    let captain_id = match sqlx::query_scalar::<_, Option<i32>>(
+        "SELECT captain_id FROM teams WHERE name = $1 FOR UPDATE",
+    )
+    .bind(&payload.team_name)
+    .fetch_optional(&mut *transaction)
+    .await
+    {
+        Ok(Some(captain_id)) => captain_id,
+        Ok(None) => {
+            if let Err(error) = transaction.rollback().await {
+                log_error("register_tournament_team_lookup_rollback", error);
+                return error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Pendaftaran gagal dan transaksi tidak dapat dibatalkan",
+                );
+            }
+            return error_response(StatusCode::NOT_FOUND, "Tim tidak ditemukan");
+        }
+        Err(error) => {
+            log_error("register_tournament_team_lookup", error);
+            if let Err(rollback_error) = transaction.rollback().await {
+                log_error("register_tournament_team_lookup_rollback", rollback_error);
+                return error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Pendaftaran gagal dan transaksi tidak dapat dibatalkan",
+                );
+            }
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Gagal memverifikasi kapten tim",
+            );
+        }
+    };
+
+    if captain_id != Some(user_id) {
+        if let Err(error) = transaction.rollback().await {
+            log_error("register_tournament_authorization_rollback", error);
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Pendaftaran gagal dan transaksi tidak dapat dibatalkan",
+            );
+        }
+        return error_response(
+            StatusCode::FORBIDDEN,
+            "Hanya kapten tim yang dapat mendaftarkan tim ini",
+        );
+    }
+
     let result = sqlx::query("CALL pr_register_team_to_tournament($1, $2)")
-        .bind(payload.tournament_name)
-        .bind(payload.team_name)
+        .bind(&payload.tournament_name)
+        .bind(&payload.team_name)
         .execute(&mut *transaction)
         .await;
 
     if let Err(error) = result {
-        let duplicate = error
+        let database_code = error
             .as_database_error()
             .and_then(|database_error| database_error.code())
-            .is_some_and(|code| code == "23505");
+            .map(|code| code.into_owned());
+        let duplicate = database_code.as_deref() == Some("23505");
+        let full = database_code.as_deref() == Some("23514");
         log_error("register_tournament", error);
         if let Err(rollback_error) = transaction.rollback().await {
             log_error("register_tournament_rollback", rollback_error);
@@ -123,6 +196,8 @@ pub async fn register_tournament(
                 StatusCode::CONFLICT,
                 "Tim sudah terdaftar pada turnamen ini",
             )
+        } else if full {
+            error_response(StatusCode::CONFLICT, "Kuota tim turnamen sudah penuh")
         } else {
             error_response(
                 StatusCode::BAD_REQUEST,
@@ -169,5 +244,18 @@ pub async fn delete_tournament(
             log_error("delete_tournament", error);
             error_response(StatusCode::NOT_FOUND, "Gagal menghapus turnamen")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::valid_max_teams;
+
+    #[test]
+    fn tournament_capacity_must_be_positive() {
+        assert!(valid_max_teams(1));
+        assert!(valid_max_teams(i32::MAX));
+        assert!(!valid_max_teams(0));
+        assert!(!valid_max_teams(-1));
     }
 }

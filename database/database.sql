@@ -14,7 +14,9 @@ CREATE TABLE tournaments (
     total_slots INTEGER NOT NULL DEFAULT 0,
     available_slots INTEGER NOT NULL DEFAULT 0,
     status VARCHAR(50) DEFAULT 'open',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CHECK (total_slots >= 0),
+    CHECK (available_slots >= 0 AND available_slots <= total_slots)
 );
 
 CREATE INDEX idx_tournaments_name

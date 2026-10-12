@@ -22,6 +22,7 @@ should not be split into feature subdirectories.
 | 010 | `010_wrap_business_functions_with_procedures.sql` | Keep business logic in functions and expose it through procedures. |
 | 011 | `011_hide_password_from_registration.sql` | Stop returning the stored password hash from registration. |
 | 012 | `012_move_duplicate_registration_check_to_function.sql` | Validate duplicate tournament entries in the business function and remove the redundant trigger. |
+| 013 | `013_add_tournament_team_capacity.sql` | Add required tournament team limits and enforce capacity during registration. |
 
 ## Current database definitions
 
@@ -37,3 +38,7 @@ The `database/` directory contains the organized, current SQL definitions:
 Edit an existing migration only before it has been applied/shared. For schema
 changes after that, add a new, higher-numbered migration. Keep the current
 definitions in `database/` aligned with the final migrated schema.
+
+`POST /api/tournaments` requires a positive `max_teams` value. A tournament
+created before migration 013 with `total_slots = 0` remains unlimited for
+backward compatibility; newly created tournaments always have a finite limit.
