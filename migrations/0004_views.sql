@@ -25,6 +25,36 @@ LEFT JOIN team_members AS tm
 LEFT JOIN users AS u
     ON u.id = tm.user_id;
 
+-- Team directory with captain and roster count.
+CREATE OR REPLACE VIEW vw_teams AS
+SELECT
+    t.id,
+    t.name,
+    t.captain_id,
+    captain.username AS captain_username,
+    COUNT(tm.user_id)::INTEGER AS member_count
+FROM teams AS t
+LEFT JOIN users AS captain
+    ON captain.id = t.captain_id
+LEFT JOIN team_members AS tm
+    ON tm.team_id = t.id
+GROUP BY t.id, t.name, t.captain_id, captain.username;
+
+-- Teams registered for each tournament.
+CREATE OR REPLACE VIEW vw_tournament_teams AS
+SELECT
+    tr.tournament_id,
+    tr.team_id,
+    t.name AS team_name,
+    t.captain_id,
+    captain.username AS captain_username,
+    tr.registered_at
+FROM tournament_registrations AS tr
+JOIN teams AS t
+    ON t.id = tr.team_id
+LEFT JOIN users AS captain
+    ON captain.id = t.captain_id;
+
 -- Match schedule with participating teams and winner.
 CREATE OR REPLACE VIEW vw_match_schedule AS
 SELECT

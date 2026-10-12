@@ -9,8 +9,10 @@ REST API untuk mengelola player, tim, turnamen, dan jadwal pertandingan e-sport.
 - Login dengan JWT Bearer untuk semua operasi yang mengubah data.
 - Validasi input dan password hashing Argon2.
 - Pembuatan tim, pengelolaan anggota, dan perpindahan kapten.
+- Direktori tim, keluar tim, penghapusan tim, serta penggantian kapten saat kapten keluar.
 - Pembuatan turnamen dan pendaftaran tim.
-- Pembuatan pertandingan serta pengaturan jadwal.
+- Daftar peserta turnamen, pembuatan pertandingan, pengaturan jadwal, dan pencatatan pemenang.
+- Perubahan username dan penghapusan akun sendiri.
 - Migrasi database otomatis saat aplikasi dijalankan.
 - Operasi tulis pengguna, tim, turnamen, dan pertandingan menggunakan stored procedure PostgreSQL.
 
@@ -101,18 +103,54 @@ Semua body request menggunakan JSON.
 | `POST` | `/api/users` | `{"username":"player1","password":"contoh-password-kuat","mmr_point":1000}` |
 | `POST` | `/api/auth/login` | `{"username":"player1","password":"contoh-password-kuat"}` |
 | `GET` | `/api/users/{id}` | - |
+| `GET` | `/api/users/by-username/{username}` | - |
+| `PUT` | `/api/users/me` | `{"username":"username_baru"}` |
+| `DELETE` | `/api/users/me` | `{"captain_replacements":[{"team_id":1,"new_captain_username":"player2"}]}` |
 | `POST` | `/api/teams` | `{"name":"Team Alpha","captain_username":"player1"}` |
+| `GET` | `/api/teams/list` | - |
 | `GET` | `/api/teams/{id}` | - |
-| `POST` | `/api/teams/join` | `{"team_name":"Team Alpha","username":"player2"}` |
+| `GET` | `/api/teams/by-name/{team_name}` | - |
+| `POST` | `/api/teams/join` | `{"team_name":"Team Alpha"}` |
+| `POST` | `/api/teams/leave` | `{"team_name":"Team Alpha","new_captain_username":"player2"}` |
 | `DELETE` | `/api/teams/members` | `{"team_name":"Team Alpha","username":"player2"}` |
 | `PUT` | `/api/teams/captain` | `{"team_name":"Team Alpha","new_captain_username":"player2"}` |
+| `DELETE` | `/api/teams/delete` | `{"team_name":"Team Alpha"}` |
 | `POST` | `/api/tournaments` | `{"name":"Summer Cup","max_teams":8}` |
 | `GET` | `/api/tournaments` | - |
+| `GET` | `/api/tournaments/{id}/teams` | - |
+| `GET` | `/api/tournaments/by-name/{tournament_name}/teams` | - |
 | `DELETE` | `/api/tournaments/{name}` | - |
 | `POST` | `/api/tournaments/register` | `{"tournament_name":"Summer Cup","team_name":"Team Alpha"}` |
 | `POST` | `/api/matches` | `{"tournament_name":"Summer Cup","team1_name":"Team Alpha","team2_name":"Team Beta","round_number":1}` |
 | `GET` | `/api/tournaments/{id}/matches` | - |
+| `GET` | `/api/tournaments/by-name/{tournament_name}/matches` | - |
 | `PUT` | `/api/matches/{id}/schedule` | `{"schedule_time":"2026-10-01 19:30:00"}` |
+| `PUT` | `/api/matches/by-name/schedule` | `{"tournament_name":"Summer Cup","team_name":"Team Alpha","schedule_time":"2026-10-01 19:30:00"}` |
+| `PUT` | `/api/matches/{id}/result` | `{"winner_team_name":"Team Alpha"}` |
+| `PUT` | `/api/matches/by-name/result` | `{"tournament_name":"Summer Cup","team_name":"Team Alpha","winner_team_name":"Team Alpha"}` |
+
+`POST /api/teams/join` menambahkan akun yang sedang login ke tim; username
+anggota diambil dari token Bearer dan tidak perlu dikirim di body.
+Endpoint GET yang berakhiran `by-name` atau `by-username` menerima nama pada
+URL dan mencari ID melalui prosedur lookup database. Endpoint GET lama yang
+menerima ID tetap tersedia.
+Jadwal dan hasil pertandingan juga dapat diperbarui melalui nama turnamen dan
+salah satu nama tim yang bertanding. Jika tim tersebut memiliki beberapa match
+di turnamen yang sama, endpoint mengembalikan HTTP 409 agar match yang salah
+tidak terpilih; gunakan endpoint berbasis ID untuk kasus ambigu.
+`POST /api/teams/join` menambahkan akun yang sedang login berdasarkan token
+Bearer; username anggota tidak perlu dikirim di body.
+`PUT /api/users/me` hanya mengubah username akun yang sedang login; MMR tidak
+bisa diubah lewat profil. Penghapusan akun hanya berlaku untuk akun sendiri.
+Jika akun memimpin beberapa tim, request harus menyertakan seorang anggota
+pengganti untuk setiap tim. Seluruh operasi gagal tanpa perubahan jika ada satu
+pengganti yang tidak valid. `DELETE /api/teams/delete` hanya dapat dipakai
+kapten; penghapusan tim juga menghapus pendaftaran turnamen dan pertandingan
+yang terkait. Saat keluar dari tim, anggota biasa cukup mengirim `team_name`;
+kapten wajib mengirim `new_captain_username` yang merupakan anggota tim lain.
+Pencatatan hasil pertandingan hanya dapat dilakukan admin, menetapkan pemenang
+dari salah satu tim yang bertanding, dan mengubah status menjadi `completed`.
+Skor pertandingan belum disimpan.
 
 ### Menyiapkan akun admin
 
@@ -209,15 +247,17 @@ Import collection [`postman/esport-api.postman_collection.json`](./postman/espor
 ke Postman, lalu jalankan semua request dengan Collection Runner secara berurutan.
 Collection membuat user, tim, turnamen, dan pertandingan uji secara otomatis,
 memeriksa status HTTP serta bentuk JSON, lalu menghapus turnamen uji di akhir.
-User dan tim uji tetap tersimpan karena API belum memiliki endpoint hapusnya.
+Collection belum menjalankan endpoint hapus akun atau tim, jadi user dan tim
+uji yang dibuatnya tetap tersimpan.
 Petunjuk lengkap ada di [`postman/README.md`](./postman/README.md).
 
 ## Database
 
-Folder `migrations/` berisi baseline SQLx modular yang dijalankan saat API mulai.
+Folder `migrations/` berisi migrasi SQLx modular yang dijalankan saat API mulai.
 Baseline ini untuk database baru atau database development yang memang akan
-di-reset. Database yang sudah memakai migrasi versi 000–016 perlu di-reset
-sebelum memakai baseline baru. Untuk menjalankan migrasi manual gunakan
+di-reset. Database yang sudah memakai migrasi versi lama 000–016 atau versi
+tambahan 6–7 perlu di-reset sebelum memakai susunan yang digabung ini, karena
+SQLx menyimpan checksum setiap migrasi. Untuk menjalankan migrasi manual gunakan
 `sqlx migrate run`; detail ada di [`migrations/README.md`](./migrations/README.md).
 
 Jika memakai role database terpisah, buat role dengan `CREATE ROLE esport_app LOGIN;`,
@@ -226,8 +266,9 @@ lalu atur password secara interaktif dengan `\password esport_app` di `psql` seb
 dan tidak lagi menetapkan password bawaan.
 
 Baseline dibagi menjadi beberapa file pendek sesuai jenis objek database:
-schema, functions, triggers, views, lalu procedures. Perubahan schema
-berikutnya dibuat sebagai migrasi baru dengan versi lebih tinggi.
+schema, functions, triggers, views, lalu procedures. Fitur tambahan dibuat
+sebagai migrasi baru dengan versi lebih tinggi. API memanggil prosedur untuk
+mutasi database di dalam transaksi; pembacaan daftar menggunakan view.
 
 ## CI
 

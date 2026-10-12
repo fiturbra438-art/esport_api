@@ -4,7 +4,7 @@ use argon2::{
     password_hash::{PasswordHasher, SaltString, rand_core::OsRng},
 };
 use axum::{
-    Json,
+    Extension, Json,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
@@ -12,7 +12,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
-use crate::auth::JwtConfig;
+use crate::auth::{Claims, JwtConfig};
 
 use super::response::{error_response, log_error};
 
@@ -246,6 +246,187 @@ pub async fn login(
         .into_response()
 }
 
+#[derive(Deserialize)]
+pub struct UpdateUsernameDto {
+    pub username: String,
+}
+
+pub async fn update_username(
+    State(pool): State<PgPool>,
+    Extension(claims): Extension<Claims>,
+    Json(payload): Json<UpdateUsernameDto>,
+) -> impl IntoResponse {
+    if let Err(error) = validate_username(&payload.username) {
+        return error_response(StatusCode::BAD_REQUEST, error);
+    }
+    let actor_id = match claims.sub.parse::<i32>() {
+        Ok(user_id) if user_id > 0 => user_id,
+        _ => {
+            return error_response(
+                StatusCode::UNAUTHORIZED,
+                "Identitas pengguna pada token tidak valid",
+            );
+        }
+    };
+
+    let mut transaction = match pool.begin().await {
+        Ok(transaction) => transaction,
+        Err(error) => {
+            log_error("update_username_begin_transaction", error);
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Gagal memulai transaksi perubahan username",
+            );
+        }
+    };
+    let result =
+        sqlx::query_as::<_, UserResponse>("CALL pr_update_username($1, $2, NULL, NULL, NULL)")
+            .bind(actor_id)
+            .bind(payload.username)
+            .fetch_one(&mut *transaction)
+            .await;
+
+    match result {
+        Ok(user) => match transaction.commit().await {
+            Ok(()) => (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "message": "Username berhasil diperbarui",
+                    "data": user
+                })),
+            )
+                .into_response(),
+            Err(error) => {
+                log_error("update_username_commit", error);
+                error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Gagal menyimpan perubahan username",
+                )
+            }
+        },
+        Err(error) => {
+            let code = error
+                .as_database_error()
+                .and_then(|database_error| database_error.code())
+                .map(|code| code.into_owned());
+            log_error("update_username", error);
+            if let Err(rollback_error) = transaction.rollback().await {
+                log_error("update_username_rollback", rollback_error);
+                return error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Perubahan username gagal dan transaksi tidak dapat dibatalkan",
+                );
+            }
+            match code.as_deref() {
+                Some("23505") => error_response(StatusCode::CONFLICT, "Username sudah digunakan"),
+                Some("P0002") => error_response(StatusCode::NOT_FOUND, "Player tidak ditemukan"),
+                _ => error_response(StatusCode::BAD_REQUEST, "Gagal memperbarui username"),
+            }
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct CaptainReplacementDto {
+    pub team_id: i32,
+    pub new_captain_username: String,
+}
+
+#[derive(Deserialize)]
+pub struct DeleteAccountDto {
+    pub captain_replacements: Vec<CaptainReplacementDto>,
+}
+
+pub async fn delete_account(
+    State(pool): State<PgPool>,
+    Extension(claims): Extension<Claims>,
+    Json(payload): Json<DeleteAccountDto>,
+) -> impl IntoResponse {
+    let actor_id = match claims.sub.parse::<i32>() {
+        Ok(user_id) if user_id > 0 => user_id,
+        _ => {
+            return error_response(
+                StatusCode::UNAUTHORIZED,
+                "Identitas pengguna pada token tidak valid",
+            );
+        }
+    };
+    if payload.captain_replacements.iter().any(|replacement| {
+        replacement.team_id <= 0 || validate_username(&replacement.new_captain_username).is_err()
+    }) {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "Setiap tim harus memiliki ID positif dan username kapten pengganti yang valid",
+        );
+    }
+    let replacements = match serde_json::to_string(&payload.captain_replacements) {
+        Ok(replacements) => replacements,
+        Err(error) => {
+            log_error("serialize_captain_replacements", error);
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Gagal memproses daftar kapten pengganti",
+            );
+        }
+    };
+    let mut transaction = match pool.begin().await {
+        Ok(transaction) => transaction,
+        Err(error) => {
+            log_error("delete_account_begin_transaction", error);
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Gagal memulai transaksi penghapusan akun",
+            );
+        }
+    };
+    let result = sqlx::query("CALL pr_delete_user($1, $2::jsonb)")
+        .bind(actor_id)
+        .bind(replacements)
+        .execute(&mut *transaction)
+        .await;
+
+    match result {
+        Ok(_) => match transaction.commit().await {
+            Ok(()) => (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "message": "Akun berhasil dihapus"
+                })),
+            )
+                .into_response(),
+            Err(error) => {
+                log_error("delete_account_commit", error);
+                error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Gagal menyimpan penghapusan akun",
+                )
+            }
+        },
+        Err(error) => {
+            let code = error
+                .as_database_error()
+                .and_then(|database_error| database_error.code())
+                .map(|code| code.into_owned());
+            log_error("delete_account", error);
+            if let Err(rollback_error) = transaction.rollback().await {
+                log_error("delete_account_rollback", rollback_error);
+                return error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Penghapusan akun gagal dan transaksi tidak dapat dibatalkan",
+                );
+            }
+            match code.as_deref() {
+                Some("P0002") => error_response(StatusCode::NOT_FOUND, "Player tidak ditemukan"),
+                Some("22023") | Some("23514") | Some("P0001") => error_response(
+                    StatusCode::BAD_REQUEST,
+                    "Pilih anggota yang valid sebagai kapten pengganti untuk setiap tim yang dipimpin",
+                ),
+                _ => error_response(StatusCode::BAD_REQUEST, "Gagal menghapus akun"),
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -335,6 +516,40 @@ pub async fn get_user_profile(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Gagal mengambil profil player",
             )
+        }
+    }
+}
+
+pub async fn get_user_profile_by_username(
+    State(pool): State<PgPool>,
+    Path(username): Path<String>,
+) -> axum::response::Response {
+    if let Err(error) = validate_username(&username) {
+        return error_response(StatusCode::BAD_REQUEST, error);
+    }
+
+    match sqlx::query_as::<_, (i32,)>("CALL pr_get_user_id_by_username($1, NULL)")
+        .bind(&username)
+        .fetch_one(&pool)
+        .await
+    {
+        Ok((user_id,)) => get_user_profile(State(pool), Path(user_id))
+            .await
+            .into_response(),
+        Err(error) => {
+            let not_found = error
+                .as_database_error()
+                .and_then(|database_error| database_error.code())
+                .is_some_and(|code| code == "P0001");
+            log_error("get_user_id_by_username", error);
+            if not_found {
+                error_response(StatusCode::NOT_FOUND, "Player tidak ditemukan")
+            } else {
+                error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Gagal mencari player berdasarkan username",
+                )
+            }
         }
     }
 }

@@ -11,8 +11,8 @@ new, higher-numbered migrations; do not edit a baseline after applying it.
 | 1 | `0001_schema.sql` | Create tables, indexes, and constraints. |
 | 2 | `0002_functions.sql` | Define database functions used by SQL procedures. |
 | 3 | `0003_triggers.sql` | Define trigger functions and triggers. |
-| 4 | `0004_views.sql` | Define API read views. |
-| 5 | `0005_procedures.sql` | Define transactional operations and authorization checks. |
+| 4 | `0004_views.sql` | Define API read views, team directory, and tournament entrants. |
+| 5 | `0005_procedures.sql` | Define transactional operations, authorization, profile/team lifecycle, account deletion, and match results. |
 
 ## Current database definitions
 
@@ -26,13 +26,15 @@ The `database/` directory contains the organized, current SQL definitions:
 - `dcl.sql` — database roles and privileges.
 
 The five files are separated by database object type and dependency order.
-Keep the current definitions in `database/` aligned with the baseline and
-future migrations.
+Keep the current definitions in `database/` aligned with these migrations and
+future changes.
 
-Before switching a database that has recorded the old migration versions
-000–016, reset its development schema and data so SQLx can apply this new
-baseline. This repository does not reset databases automatically. Do not use
-this baseline on a database whose data must be preserved.
+This compacted baseline must be applied to a fresh or deliberately reset
+development database. Databases that already recorded old versions 000–016 or
+the subsequently added versions 6–7 need their schema and SQLx migration
+history reset before using this layout. This repository does not reset
+databases automatically. Do not use this baseline on a database whose data
+must be preserved.
 
 `POST /api/tournaments` requires a positive `max_teams` value. Newly created
 tournaments always have a finite limit.
@@ -41,3 +43,8 @@ matches. Team membership and captain operations are restricted to the
 authenticated user or team captain as appropriate. Stored procedures enforce
 these rules; the API calls them within transactions.
 Promote a trusted account manually after registration; see the root `README.md`.
+
+Every new mutating endpoint invokes a stored procedure inside a SQLx
+transaction. Account deletion requires one valid replacement captain for every
+team the account captains. Deleting a team cascades to its tournament
+registrations and matches.

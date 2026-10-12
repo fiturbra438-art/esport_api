@@ -2,102 +2,83 @@
 
 ## Which collection should I use?
 
-- **Esport API - Manual (VS Code)** is the cloud collection for sending individual
-  requests. Its main folders group requests by Auth & Users, Teams, Tournaments,
-  and Matches. Request scripts show the expected status and validate responses.
+- **Esport API - Manual (VS Code)** is the cloud collection for sending
+  individual requests. Use it when you only need to try selected endpoints.
 - `esport-api.postman_collection.json` is the local sequential integration
-  collection. It creates test users and teams, exercises the API in order, and
-  deletes its test tournament at the end. Import it into Postman only when you
-  want to run the full integration flow.
+  collection. Import it into Postman VS Code and run it when you want to test
+  the full API flow, including cleanup of generated test data.
 
-For manual work, do not run the whole cloud collection as a single sequence:
-some requests are examples or negative tests and require specific setup. Run
-only the request you need after its prerequisites.
+Do not run the cloud/manual collection as one sequence; its requests require
+different setup and identities.
 
 ## Initial setup
 
 1. Start PostgreSQL and the API using the local setup in the root `README.md`.
-2. In Postman VS Code, select the **Esport API - Manual (VS Code)** collection
-   and the **Esport API - Local (VS Code)** environment. Set `baseUrl` to
-   `http://127.0.0.1:8080` (or the address where the API is running).
-3. Create or select an environment for credentials. Set the variables needed
-   by the requests you plan to run. Mark password variables as **secret**:
+2. In Postman VS Code, use **Import** to import
+   `postman/esport-api.postman_collection.json`. If VS Code shows a file picker,
+   select that JSON file directly.
+3. Set `baseUrl` to `http://127.0.0.1:8080` or the address where the API runs.
+4. Set `adminUsername` and `adminPassword` in the active environment to an
+   existing admin account. New registrations have the `user` role; promote an
+   account to `admin` as described in the root `README.md` before running this
+   flow. Mark `adminPassword` as a secret. The collection does not contain real
+   admin credentials.
+5. Run the full **Esport API - Local Integration Tests** collection in order
+   using Postman's Collection Runner, then inspect **Test Results**.
 
-   | Variable | Used for |
-   | --- | --- |
-   | `loginUsername`, `loginPassword` | General login request |
-   | `adminUsername`, `adminPassword` | Admin-only tournament operations |
-   | `captainUsername`, `captainPassword` | Captain-only registration tests |
-   | `memberUsername`, `memberPassword` | Non-captain authorization test |
-   | `secondCaptainUsername`, `secondCaptainPassword` | Second team in capacity test |
-   | `teamName` | Exact team name for the registration and captain tests |
-   | `firstTeamName`, `secondTeamName` | Exact names for the two capacity-test teams |
+The collection makes and saves distinct JWTs for the captain, member, third
+user, and admin, so switching logins does not confuse the authenticated actor.
+Its generated demo password is only for disposable local test accounts.
 
-   Keep credentials in the active environment; do not save real passwords in
-   the collection or share them.
-4. To create or delete tournaments, register an account and promote it to
-   `admin` as documented in the root `README.md`. Registration itself assigns
-   the `user` role.
-5. Select the environment before sending requests. The **Login** request saves
-   the access token to the collection variable `token` and the user's role to
-   `loginRole`; protected requests use that token. The specialized captain and
-   admin test logins save separate tokens (`captainToken`, `memberToken`, and
-   `adminToken`) so switching test identities does not overwrite each other.
+## What the integration flow tests
 
-## Running requests manually
+The collection checks health, registration and login, profile lookup by
+username and username changes, team creation/profile lookup by name/directory,
+joining and removing
+members, captain transfer, leaving and deleting teams, tournament
+creation/listing/registration/entrant listing/deletion, match
+creation/listing/scheduling/result recording by tournament and one competing
+team name, and account deletion. It also
+checks selected invalid-token, duplicate, non-admin, full-capacity, and missing
+resource cases.
 
-Use the folders as a guide:
+## Cleanup and database safety
 
-- **Auth & Users**: check API health, register an account, log in, and retrieve
-  a user profile.
-- **Teams**: create a team, view it, add/remove members, or transfer the
-  captaincy. Team names in request bodies must match the database.
-- **Tournaments**: list tournaments; admins can create/delete them, while only
-  the captain of a team can register that team. Tournament names and team names
-  must match exactly.
-- **Matches**: create a match between teams registered in the tournament, list
-  its matches, and set a schedule.
+On a successful full run, the collection removes its tournament, both teams,
+and all three generated users. The sequence transfers captaincy where needed
+before deleting an account or team. If a run stops partway through, inspect
+**Test Results** and the saved `captainUsername`, `memberUsername`,
+`thirdUsername`, `teamAlpha`, `teamBeta`, and `tournamentName` collection
+variables before cleaning up any leftover test records.
 
-Requests named `CAPTAIN TEST` and `Admin TEST` are an optional authorization
-scenario. Set the account variables above and use a team whose captain and
-regular member accounts are both available. Run the admin login and temporary
-tournament creation before the captain's registration request, then run the
-member request to verify HTTP 403. The test tournament is not automatically
-deleted by this manual scenario; use the admin-only **Delete tournament**
-request when finished. Before sending it, set the collection variable
-`tournamentName` to the generated `captainTestTournament` value.
+The flow only calls the API; it does not reset the database or run SQL
+migrations. Do not use it against production data.
 
-Requests prefixed `Capacity` and `Tournament - Reject duplicate name` are
-optional negative tests. The current capacity helper requests are in the
-**Teams** folder; use their `Capacity` names to identify them. Run the capacity
-requests manually in this order:
+The **Esport API - Seed Data (8 Teams, 40 Users)** collection recreates the
+original fixed demo data: 40 named users and teams `RRQ`, `EVOS`, `ONIC`, `NAVI`,
+`AE`, `TLID`, `BTR`, and `DEWA`, with five users in each team. The collection
+logs in as each account before joining it to its team and verifies every roster
+before setting `seedStatus` to `completed`. Because it uses fixed names, run it
+only after clearing conflicting demo data, and do not send it a second time
+unless those records have been removed. Inspect `seedStatus` and Test Results
+after sending; an error identifies the first step that failed. This collection
+is intended only for a local/test database, never production.
 
-1. Login as admin (CAPTAIN TEST 3), then **Capacity - Create one-slot
-   tournament**.
-2. Login as the first captain (CAPTAIN TEST 1), then **Capacity - Register
-   first team (201)**. Use `firstTeamName`.
-3. Send **Capacity - Login second captain**, then **Capacity - Reject
-   registration when full (409)**. Use a different team in `secondTeamName`.
-4. **Capacity - Reject max_teams=0 (400)** can be run while `adminToken` is
-   available.
-5. Finish with **Capacity - Delete test tournament** so test data is cleaned
-   up.
+## Sending requests manually
 
-A duplicate-name test must be sent after creating a tournament with the same
-name. Duplicate registration and full capacity expect HTTP 409; invalid
-`max_teams` expects HTTP 400.
-
-## Running the local integration collection
-
-1. Import `esport-api.postman_collection.json`.
-2. Set `baseUrl` to the API address and set `adminUsername` and secret
-   `adminPassword` in the active environment.
-3. Run the full collection in order using the Collection Runner.
-4. Review the **Test Results** tab.
-
-The integration collection generates unique usernames and team/tournament
-names. It creates two users and two teams that remain in the database because
-the API has no user/team deletion endpoints. It creates a one-slot tournament,
-tests successful, duplicate, and full-capacity registration, creates and
-schedules a match, then deletes the temporary tournament. PostgreSQL cascades
-that tournament deletion to its registrations and matches.
+For the cloud/manual collection, set the active environment variables used by
+the request (for example `baseUrl`, usernames, team/tournament names, and
+credentials), then select the matching environment before sending. Name-based
+GET requests look up the corresponding IDs in the backend, so you can use a
+username, team name, or tournament name instead of entering its database ID.
+Match scheduling and results accept `tournament_name` plus either competing
+`team_name`; when that team has multiple matches in the tournament, the API
+returns HTTP 409 rather than guessing.
+Store
+passwords as secret environment values, not in a collection or shared request.
+The specialized tests use separate `captainToken`, `memberToken`, and
+`adminToken` variables to preserve the authenticated identity. Tournament and
+match administration requires an admin account; team registration requires
+the authenticated team captain. The **Join team** body only needs
+`{"team_name":"{{teamName}}"}`; the API adds the authenticated account from
+the Bearer token automatically.

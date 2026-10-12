@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "da13b9e4-9082-4c41-95f1-a91be84211bb",
     "name": "Esport API - Local Integration Tests",
-    "description": "Sequential smoke/integration tests for the local Esport API. Run the full collection in order. It creates two users, two teams, one tournament, and one match; it deletes the tournament at the end. Users and teams are not deleted because the API has no such endpoints.",
+    "description": "Sequential integration tests for all implemented API endpoints. Creates temporary users, teams, tournament, and match, exercises protected operations, and cleans up generated data at the end. Set adminUsername and adminPassword to an existing admin account before running.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -64,6 +64,38 @@
     },
     {
       "key": "adminToken",
+      "value": ""
+    },
+    {
+      "key": "captainToken",
+      "value": ""
+    },
+    {
+      "key": "thirdUsername",
+      "value": ""
+    },
+    {
+      "key": "thirdId",
+      "value": ""
+    },
+    {
+      "key": "thirdToken",
+      "value": ""
+    },
+    {
+      "key": "teamBetaId",
+      "value": ""
+    },
+    {
+      "key": "newCaptainUsername",
+      "value": ""
+    },
+    {
+      "key": "demoPassword",
+      "value": ""
+    },
+    {
+      "key": "memberToken",
       "value": ""
     }
   ],
@@ -190,6 +222,48 @@
       }
     },
     {
+      "name": "2d. Register third test user",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/users",
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"username\":  \"{{thirdUsername}}\",\r\n    \"password\":  \"{{demoPassword}}\",\r\n    \"mmr_point\":  900\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('thirdUsername', 'pm_third_' + Date.now());"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('User ketiga berhasil didaftarkan tanpa membocorkan password', function () { pm.response.to.have.status(201); const body = pm.response.json(); pm.expect(body.data.username).to.eql(pm.collectionVariables.get('thirdUsername')); pm.expect(body.data).not.to.have.property('password'); pm.collectionVariables.set('thirdId', String(body.data.id)); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "2a. Reject protected mutation without token",
       "event": [
         {
@@ -247,10 +321,6 @@
           {
             "key": "Content-Type",
             "value": "application/json"
-          },
-          {
-            "key": "Authorization",
-            "value": "Bearer invalid.token.value"
           }
         ],
         "body": {
@@ -262,7 +332,17 @@
             }
           }
         },
-        "url": "{{baseUrl}}/api/teams"
+        "url": "{{baseUrl}}/api/teams",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "not-a-valid-token",
+              "type": "string"
+            }
+          ]
+        }
       }
     },
     {
@@ -273,14 +353,7 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('Login mengembalikan token Bearer', function () {",
-              "    pm.response.to.have.status(200);",
-              "    const body = pm.response.json();",
-              "    pm.expect(body.token_type).to.eql('Bearer');",
-              "    pm.expect(body.access_token).to.be.a('string').and.not.empty;",
-              "    pm.expect(body.user.role).to.eql('user');",
-              "    pm.collectionVariables.set('token', body.access_token);",
-              "});"
+              "pm.test('Login captain menghasilkan token Bearer', function () { pm.response.to.have.status(200); const body = pm.response.json(); pm.expect(body.token_type).to.eql('Bearer'); pm.expect(body.access_token).to.be.a('string').and.not.empty; pm.expect(body.user.role).to.eql('user'); pm.collectionVariables.set('captainToken', body.access_token); pm.collectionVariables.set('token', body.access_token); });"
             ]
           }
         }
@@ -326,8 +399,93 @@
       "request": {
         "method": "GET",
         "header": [],
-        "url": "{{baseUrl}}/api/users/{{captainId}}"
+        "url": "{{baseUrl}}/api/users/by-username/{{captainUsername}}"
       }
+    },
+    {
+      "name": "3a. Update own username",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/users/me",
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"username\":  \"{{newCaptainUsername}}\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{captainToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('newCaptainUsername', 'pm_renamed_' + Date.now());"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Pengguna dapat mengubah username sendiri', function () { pm.response.to.have.status(200); const body = pm.response.json(); pm.expect(body.data.username).to.eql(pm.collectionVariables.get('newCaptainUsername')); pm.expect(body.data.mmr_point).to.eql(1200); pm.collectionVariables.set('captainUsername', body.data.username); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3b. Login member to create Team Beta",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/login",
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"username\":  \"{{memberUsername}}\",\r\n    \"password\":  \"{{demoPassword}}\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Login kapten Beta berhasil', function () { pm.response.to.have.status(200); pm.expect(pm.response.json().user.username).to.eql(pm.collectionVariables.get('memberUsername')); pm.collectionVariables.set('memberToken', pm.response.json().access_token); pm.collectionVariables.set('token', pm.response.json().access_token); });"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "4. Create Team Alpha",
@@ -380,7 +538,7 @@
           "bearer": [
             {
               "key": "token",
-              "value": "{{token}}",
+              "value": "{{captainToken}}",
               "type": "string"
             }
           ]
@@ -391,23 +549,11 @@
       "name": "5. Create Team Beta",
       "event": [
         {
-          "listen": "prerequest",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.collectionVariables.set('teamBeta', `Postman Beta ${Date.now()}`);"
-            ]
-          }
-        },
-        {
           "listen": "test",
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('Team Beta berhasil dibuat', function () {",
-              "    pm.response.to.have.status(201);",
-              "    pm.expect(pm.response.json().data.name).to.eql(pm.collectionVariables.get('teamBeta'));",
-              "});"
+              "pm.test('Team Beta dibuat oleh kapten yang login', function () { pm.response.to.have.status(201); const data = pm.response.json().data; pm.expect(data.name).to.eql(pm.collectionVariables.get('teamBeta')); pm.expect(data.captain_id).to.eql(Number(pm.collectionVariables.get('memberId'))); pm.collectionVariables.set('teamBetaId', String(data.id)); });"
             ]
           }
         }
@@ -435,7 +581,7 @@
           "bearer": [
             {
               "key": "token",
-              "value": "{{token}}",
+              "value": "{{memberToken}}",
               "type": "string"
             }
           ]
@@ -468,7 +614,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"team_name\": \"{{teamAlpha}}\",\n  \"username\": \"{{memberUsername}}\"\n}",
+          "raw": "{\"team_name\":\"{{teamAlpha}}\"}",
           "options": {
             "raw": {
               "language": "json"
@@ -481,7 +627,7 @@
           "bearer": [
             {
               "key": "token",
-              "value": "{{token}}",
+              "value": "{{memberToken}}",
               "type": "string"
             }
           ]
@@ -497,7 +643,7 @@
             "type": "text/javascript",
             "exec": [
               "pm.test('Anggota duplikat ditolak', function () {",
-              "    pm.response.to.have.status(400);",
+              "    pm.response.to.have.status(409);",
               "    pm.expect(pm.response.json()).to.have.property('error');",
               "});"
             ]
@@ -514,7 +660,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"team_name\": \"{{teamAlpha}}\",\n  \"username\": \"{{memberUsername}}\"\n}",
+          "raw": "{\"team_name\":\"{{teamAlpha}}\"}",
           "options": {
             "raw": {
               "language": "json"
@@ -527,12 +673,193 @@
           "bearer": [
             {
               "key": "token",
-              "value": "{{token}}",
+              "value": "{{memberToken}}",
               "type": "string"
             }
           ]
         }
       }
+    },
+    {
+      "name": "7a. Login third user",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/login",
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"username\":  \"{{thirdUsername}}\",\r\n    \"password\":  \"{{demoPassword}}\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Login user ketiga berhasil', function () { pm.response.to.have.status(200); pm.collectionVariables.set('thirdToken', pm.response.json().access_token); pm.collectionVariables.set('token', pm.response.json().access_token); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "7b. Join third user to Alpha",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/teams/join",
+        "body": {
+          "mode": "raw",
+          "raw": "{\"team_name\":\"{{teamAlpha}}\"}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{thirdToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('User ketiga bergabung ke Team Alpha', function () { pm.response.to.have.status(201); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "7c. Join third user to Beta",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/teams/join",
+        "body": {
+          "mode": "raw",
+          "raw": "{\"team_name\":\"{{teamBeta}}\"}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{thirdToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('User ketiga bergabung ke Team Beta', function () { pm.response.to.have.status(201); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "7d. Join renamed captain to Beta",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/teams/join",
+        "body": {
+          "mode": "raw",
+          "raw": "{\"team_name\":\"{{teamBeta}}\"}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{captainToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Kapten Alpha bergabung sebagai anggota Beta', function () { pm.response.to.have.status(201); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "7e. List all teams",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/teams/list"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Direktori tim memuat Alpha dan Beta', function () { pm.response.to.have.status(200); const data = pm.response.json().data; pm.expect(data).to.be.an('array'); pm.expect(data.some(team => team.id === Number(pm.collectionVariables.get('teamId')))).to.eql(true); pm.expect(data.some(team => team.id === Number(pm.collectionVariables.get('teamBetaId')))).to.eql(true); });"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "8. Get team profile",
@@ -557,7 +884,7 @@
       "request": {
         "method": "GET",
         "header": [],
-        "url": "{{baseUrl}}/api/teams/{{teamId}}"
+        "url": "{{baseUrl}}/api/teams/by-name/{{teamAlpha}}"
       }
     },
     {
@@ -599,7 +926,7 @@
           "bearer": [
             {
               "key": "token",
-              "value": "{{token}}",
+              "value": "{{captainToken}}",
               "type": "string"
             }
           ]
@@ -628,7 +955,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{baseUrl}}/api/teams/{{teamId}}"
+            "url": "{{baseUrl}}/api/teams/by-name/{{teamAlpha}}"
           }
         },
         {
@@ -669,7 +996,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{token}}",
+                  "value": "{{memberToken}}",
                   "type": "string"
                 }
               ]
@@ -677,7 +1004,7 @@
           }
         },
         {
-          "name": "10c. Remove member from Alpha",
+          "name": "10c. Remove former captain from Beta",
           "event": [
             {
               "listen": "test",
@@ -701,7 +1028,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"team_name\": \"{{teamAlpha}}\",\n  \"username\": \"{{memberUsername}}\"\n}",
+              "raw": "{\r\n    \"team_name\":  \"{{teamBeta}}\",\r\n    \"username\":  \"{{captainUsername}}\"\r\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -714,11 +1041,87 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{token}}",
+                  "value": "{{memberToken}}",
                   "type": "string"
                 }
               ]
             }
+          }
+        }
+      ]
+    },
+    {
+      "name": "10f. Login captain for registration",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/login",
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"username\":  \"{{captainUsername}}\",\r\n    \"password\":  \"{{demoPassword}}\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Login captain setelah perubahan username berhasil', function () { pm.response.to.have.status(200); pm.collectionVariables.set('captainToken', pm.response.json().access_token); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "10g. Third user leaves Alpha",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/teams/leave",
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"team_name\":  \"{{teamAlpha}}\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{thirdToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Anggota biasa dapat keluar dari tim', function () { pm.response.to.have.status(200); });"
+            ]
           }
         }
       ]
@@ -977,12 +1380,31 @@
           "bearer": [
             {
               "key": "token",
-              "value": "{{token}}",
+              "value": "{{captainToken}}",
               "type": "string"
             }
           ]
         }
       }
+    },
+    {
+      "name": "13d. List tournament entrants",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/tournaments/by-name/{{tournamentName}}/teams"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Daftar peserta turnamen memuat Alpha', function () { pm.response.to.have.status(200); const data = pm.response.json().data; pm.expect(data).to.be.an('array'); pm.expect(data.some(team => team.team_id === Number(pm.collectionVariables.get('teamId')))).to.eql(true); });"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "13a. Login as Beta captain",
@@ -992,12 +1414,7 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('Login kapten Beta berhasil', function () {",
-              "    pm.response.to.have.status(200);",
-              "    const body = pm.response.json();",
-              "    pm.expect(body.access_token).to.be.a('string').and.not.empty;",
-              "    pm.collectionVariables.set('betaToken', body.access_token);",
-              "});"
+              "pm.test('Login kapten Beta berhasil', function () { pm.response.to.have.status(200); pm.expect(pm.response.json().user.username).to.eql(pm.collectionVariables.get('memberUsername')); pm.collectionVariables.set('memberToken', pm.response.json().access_token); pm.collectionVariables.set('betaToken', pm.response.json().access_token); pm.collectionVariables.set('token', pm.response.json().access_token); });"
             ]
           }
         }
@@ -1061,7 +1478,7 @@
           "bearer": [
             {
               "key": "token",
-              "value": "{{betaToken}}",
+              "value": "{{memberToken}}",
               "type": "string"
             }
           ]
@@ -1107,7 +1524,7 @@
           "bearer": [
             {
               "key": "token",
-              "value": "{{token}}",
+              "value": "{{captainToken}}",
               "type": "string"
             }
           ]
@@ -1153,7 +1570,7 @@
           "bearer": [
             {
               "key": "token",
-              "value": "{{token}}",
+              "value": "{{adminToken}}",
               "type": "string"
             }
           ]
@@ -1168,13 +1585,7 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('Jadwal memuat pertandingan Alpha vs Beta', function () {",
-              "    pm.response.to.have.status(200);",
-              "    const data = pm.response.json().data;",
-              "    const match = data.find(item => item.team1_name === pm.collectionVariables.get('teamAlpha') && item.team2_name === pm.collectionVariables.get('teamBeta'));",
-              "    pm.expect(match, 'pertandingan Alpha vs Beta').to.exist;",
-              "    pm.collectionVariables.set('matchId', String(match.id));",
-              "});"
+              "pm.test('Daftar pertandingan memuat Alpha vs Beta', function () { pm.response.to.have.status(200); const data = pm.response.json().data; const match = data.find(item => item.team1_name === pm.collectionVariables.get('teamAlpha') && item.team2_name === pm.collectionVariables.get('teamBeta')); pm.expect(match, 'pertandingan Alpha vs Beta').to.exist; pm.collectionVariables.set('matchId', String(match.id)); });"
             ]
           }
         }
@@ -1182,7 +1593,7 @@
       "request": {
         "method": "GET",
         "header": [],
-        "url": "{{baseUrl}}/api/tournaments/{{tournamentId}}/matches"
+        "url": "{{baseUrl}}/api/tournaments/by-name/{{tournamentName}}/matches"
       }
     },
     {
@@ -1211,20 +1622,20 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"schedule_time\": \"2026-10-14 19:30:00\"\n}",
+          "raw": "{\n  \"tournament_name\": \"{{tournamentName}}\",\n  \"team_name\": \"{{teamAlpha}}\",\n  \"schedule_time\": \"2026-10-14 19:30:00\"\n}",
           "options": {
             "raw": {
               "language": "json"
             }
           }
         },
-        "url": "{{baseUrl}}/api/matches/{{matchId}}/schedule",
+        "url": "{{baseUrl}}/api/matches/by-name/schedule",
         "auth": {
           "type": "bearer",
           "bearer": [
             {
               "key": "token",
-              "value": "{{token}}",
+              "value": "{{adminToken}}",
               "type": "string"
             }
           ]
@@ -1257,25 +1668,235 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"schedule_time\": \"ini-bukan-tanggal\"\n}",
+          "raw": "{\n  \"tournament_name\": \"{{tournamentName}}\",\n  \"team_name\": \"{{teamAlpha}}\",\n  \"schedule_time\": \"ini-bukan-tanggal\"\n}",
           "options": {
             "raw": {
               "language": "json"
             }
           }
         },
-        "url": "{{baseUrl}}/api/matches/{{matchId}}/schedule",
+        "url": "{{baseUrl}}/api/matches/by-name/schedule",
         "auth": {
           "type": "bearer",
           "bearer": [
             {
               "key": "token",
-              "value": "{{token}}",
+              "value": "{{adminToken}}",
               "type": "string"
             }
           ]
         }
       }
+    },
+    {
+      "name": "17a. Set match winner",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/matches/by-name/result",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"tournament_name\": \"{{tournamentName}}\",\n  \"team_name\": \"{{teamAlpha}}\",\n  \"winner_team_name\": \"{{teamAlpha}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{adminToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Admin dapat mencatat pemenang pertandingan', function () { pm.response.to.have.status(200); pm.expect(pm.response.json()).to.have.property('message'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "17b. Verify match result",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/tournaments/by-name/{{tournamentName}}/matches"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Jadwal menampilkan waktu dan pemenang', function () { pm.response.to.have.status(200); const match = pm.response.json().data.find(item => item.id === Number(pm.collectionVariables.get('matchId'))); pm.expect(match).to.exist; pm.expect(match.winner_name).to.eql(pm.collectionVariables.get('teamAlpha')); pm.expect(match.status).to.eql('completed'); pm.expect(match.schedule_time).to.include('2026-10-14 19:30:00'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "17c. Beta captain leaves and transfers captaincy",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/teams/leave",
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"team_name\":  \"{{teamBeta}}\",\r\n    \"new_captain_username\":  \"{{thirdUsername}}\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{memberToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Kapten dapat keluar setelah menunjuk pengganti', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "17d. Reject account deletion without replacement",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/users/me",
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"captain_replacements\":  [\r\n\r\n                             ]\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{captainToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Penghapusan akun kapten wajib memiliki pengganti', function () { pm.response.to.have.status(400); pm.expect(pm.response.json()).to.have.property('error'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "17e. Delete captain account and transfer Alpha",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/users/me",
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"captain_replacements\": [\r\n    {\r\n      \"team_id\": {{teamId}},\r\n      \"new_captain_username\": \"{{memberUsername}}\"\r\n    }\r\n  ]\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{captainToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Akun kapten dihapus setelah kepemimpinan Alpha dialihkan', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "18. Verify deleted user profile is missing",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/users/by-username/{{captainUsername}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Profil akun yang dihapus mengembalikan 404', function () { pm.response.to.have.status(404); });"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "18. Reject missing user profile",
@@ -1329,6 +1950,178 @@
           ]
         }
       }
+    },
+    {
+      "name": "20. Delete Team Alpha",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/teams/delete",
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"team_name\":  \"{{teamAlpha}}\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{memberToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Kapten dapat menghapus Team Alpha', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "21. Delete Team Beta",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/teams/delete",
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"team_name\":  \"{{teamBeta}}\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{thirdToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Kapten pengganti dapat menghapus Team Beta', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "22. Delete remaining member account",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/users/me",
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"captain_replacements\":  [\r\n\r\n                             ]\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{memberToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Akun anggota yang tidak lagi memimpin tim dapat dihapus', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "23. Delete remaining third account",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/users/me",
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"captain_replacements\":  [\r\n\r\n                             ]\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{thirdToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Akun anggota terakhir dapat dihapus', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ]
     }
   ]
 }

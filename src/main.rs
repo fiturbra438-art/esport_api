@@ -50,8 +50,14 @@ async fn main() {
     println!("✅ Berhasil terhubung ke database TOURNAMEN_ESPORT!");
 
     let protected_routes = Router::new()
+        .route(
+            "/api/users/me",
+            put(handlers::update_username).delete(handlers::delete_account),
+        )
         .route("/api/teams", post(handlers::create_team))
+        .route("/api/teams/delete", delete(handlers::delete_team))
         .route("/api/teams/join", post(handlers::join_team))
+        .route("/api/teams/leave", post(handlers::leave_team))
         .route("/api/teams/members", delete(handlers::remove_team_member))
         .route("/api/teams/captain", put(handlers::transfer_captain))
         .route("/api/tournaments", post(handlers::create_tournament))
@@ -65,6 +71,15 @@ async fn main() {
         )
         .route("/api/matches", post(handlers::create_match))
         .route(
+            "/api/matches/by-name/result",
+            put(handlers::set_match_result_by_names),
+        )
+        .route(
+            "/api/matches/by-name/schedule",
+            put(handlers::update_match_schedule_by_names),
+        )
+        .route("/api/matches/:id/result", put(handlers::set_match_result))
+        .route(
             "/api/matches/:id/schedule",
             put(handlers::update_match_schedule),
         )
@@ -74,9 +89,30 @@ async fn main() {
         .route("/", get(|| async { "API Turnamen E-Sport Berjalan cukkk" }))
         .route("/api/users", post(handlers::register_user))
         .route("/api/auth/login", post(handlers::login))
+        .route(
+            "/api/users/by-username/:username",
+            get(handlers::get_user_profile_by_username),
+        )
         .route("/api/users/:id", get(handlers::get_user_profile))
+        .route("/api/teams/list", get(handlers::get_teams))
+        .route(
+            "/api/teams/by-name/:team_name",
+            get(handlers::get_team_profile_by_name),
+        )
         .route("/api/teams/:id", get(handlers::get_team_profile))
         .route("/api/tournaments", get(handlers::get_tournaments))
+        .route(
+            "/api/tournaments/by-name/:tournament_name/teams",
+            get(handlers::get_tournament_teams_by_name),
+        )
+        .route(
+            "/api/tournaments/by-name/:tournament_name/matches",
+            get(handlers::get_tournament_matches_by_name),
+        )
+        .route(
+            "/api/tournaments/:id/teams",
+            get(handlers::get_tournament_teams),
+        )
         .route(
             "/api/tournaments/:id/matches",
             get(handlers::get_tournament_matches),

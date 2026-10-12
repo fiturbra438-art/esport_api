@@ -136,6 +136,105 @@ pub async fn get_tournaments(State(pool): State<PgPool>) -> impl IntoResponse {
     }
 }
 
+#[derive(Serialize, sqlx::FromRow)]
+pub struct TournamentTeamResponse {
+    pub team_id: i32,
+    pub team_name: String,
+    pub captain_id: Option<i32>,
+    pub captain_username: Option<String>,
+    pub registered_at: String,
+}
+
+pub async fn get_tournament_teams(
+    State(pool): State<PgPool>,
+    Path(tournament_id): Path<i32>,
+) -> impl IntoResponse {
+    if tournament_id <= 0 {
+        return error_response(StatusCode::BAD_REQUEST, "ID turnamen harus positif");
+    }
+
+    let exists = match sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM tournaments WHERE id = $1)",
+    )
+    .bind(tournament_id)
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(exists) => exists,
+        Err(error) => {
+            log_error("get_tournament_teams_exists", error);
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Gagal memeriksa turnamen",
+            );
+        }
+    };
+    if !exists {
+        return error_response(StatusCode::NOT_FOUND, "Turnamen tidak ditemukan");
+    }
+
+    match sqlx::query_as::<_, TournamentTeamResponse>(
+        "SELECT team_id, team_name, captain_id, captain_username, registered_at::TEXT AS registered_at FROM vw_tournament_teams WHERE tournament_id = $1 ORDER BY registered_at, team_id",
+    )
+    .bind(tournament_id)
+    .fetch_all(&pool)
+    .await
+    {
+        Ok(teams) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "message": "Berhasil mengambil daftar tim turnamen",
+                "data": teams
+            })),
+        )
+            .into_response(),
+        Err(error) => {
+            log_error("get_tournament_teams", error);
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Gagal mengambil daftar tim turnamen",
+            )
+        }
+    }
+}
+
+pub async fn get_tournament_teams_by_name(
+    State(pool): State<PgPool>,
+    Path(tournament_name): Path<String>,
+) -> axum::response::Response {
+    if !valid_name(&tournament_name) {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "Nama turnamen wajib diisi (maksimal 100 karakter)",
+        );
+    }
+
+    match sqlx::query_as::<_, (i32,)>("CALL pr_get_tournament_id_by_name($1, NULL)")
+        .bind(&tournament_name)
+        .fetch_one(&pool)
+        .await
+    {
+        Ok((tournament_id,)) => get_tournament_teams(State(pool), Path(tournament_id))
+            .await
+            .into_response(),
+        Err(error) => {
+            let not_found = error
+                .as_database_error()
+                .and_then(|database_error| database_error.code())
+                .is_some_and(|code| code == "P0001");
+            log_error("get_tournament_id_for_teams", error);
+            if not_found {
+                error_response(StatusCode::NOT_FOUND, "Turnamen tidak ditemukan")
+            } else {
+                error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Gagal mencari turnamen berdasarkan nama",
+                )
+            }
+        }
+    }
+}
+
 #[derive(Deserialize)]
 pub struct RegisterTournamentDto {
     pub tournament_name: String,
