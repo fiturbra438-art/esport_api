@@ -257,6 +257,24 @@ RETURNS VOID
 LANGUAGE plpgsql
 AS $$
 BEGIN
+    -- Validasi tim A wajib terdaftar di turnamen ini.
+    IF p_team_a_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM tournament_registrations
+        WHERE tournament_id = p_tournament_id AND team_id = p_team_a_id
+    ) THEN
+        RAISE EXCEPTION 'Tim A belum terdaftar pada turnamen ini'
+            USING ERRCODE = '23503';
+    END IF;
+
+    -- Validasi tim B wajib terdaftar di turnamen ini.
+    IF p_team_b_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM tournament_registrations
+        WHERE tournament_id = p_tournament_id AND team_id = p_team_b_id
+    ) THEN
+        RAISE EXCEPTION 'Tim B belum terdaftar pada turnamen ini'
+            USING ERRCODE = '23503';
+    END IF;
+
     INSERT INTO matches (tournament_id, team_a_id, team_b_id, round_number)
     VALUES (p_tournament_id, p_team_a_id, p_team_b_id, p_round_number);
 END;

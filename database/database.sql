@@ -18,7 +18,8 @@ CREATE TABLE tournaments (
     status VARCHAR(50) DEFAULT 'open',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CHECK (total_slots >= 0),
-    CHECK (available_slots >= 0 AND available_slots <= total_slots)
+    CHECK (available_slots >= 0 AND available_slots <= total_slots),
+    CONSTRAINT chk_tournaments_status CHECK (status IN ('open', 'ongoing', 'completed', 'cancelled'))
 );
 
 CREATE UNIQUE INDEX uq_tournaments_name_normalized
@@ -31,7 +32,9 @@ CREATE INDEX idx_tournaments_name
 CREATE TABLE teams (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) UNIQUE NOT NULL,
-    captain_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    -- ON DELETE RESTRICT: kapten aktif wajib serahkan jabatan sebelum akun dihapus,
+    -- mencegah tim orphan (captain_id NULL) yang tidak bisa dikelola siapapun.
+    captain_id INTEGER REFERENCES users(id) ON DELETE RESTRICT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -63,7 +66,16 @@ CREATE TABLE matches (
     winner_id INTEGER REFERENCES teams(id) ON DELETE SET NULL,
     status VARCHAR(50) DEFAULT 'scheduled',
     round_number INTEGER,
-    schedule_time TIMESTAMP
+    schedule_time TIMESTAMP,
+    -- Mencegah tim bertanding melawan dirinya sendiri.
+    CONSTRAINT chk_matches_distinct_teams
+        CHECK (team_a_id IS NULL OR team_b_id IS NULL OR team_a_id <> team_b_id),
+    -- Nomor ronde harus positif.
+    CONSTRAINT chk_matches_round_positive
+        CHECK (round_number IS NULL OR round_number > 0),
+    -- Status hanya menerima nilai yang sudah ditentukan.
+    CONSTRAINT chk_matches_status
+        CHECK (status IN ('scheduled', 'ongoing', 'completed', 'cancelled'))
 );
 
 -- Indeks untuk pencarian prosedur, jadwal, dan aksi foreign key.

@@ -488,7 +488,13 @@ BEGIN
             USING ERRCODE = '42501';
     END IF;
 
-    DELETE FROM matches
+    -- Pertahankan histori pertandingan, hanya hapus referensi tim yang bubar.
+    -- Tim lawan tidak kehilangan catatan pertandingannya di turnamen.
+    UPDATE matches
+    SET
+        team_a_id = CASE WHEN team_a_id = v_team_id THEN NULL ELSE team_a_id END,
+        team_b_id = CASE WHEN team_b_id = v_team_id THEN NULL ELSE team_b_id END,
+        winner_id = CASE WHEN winner_id = v_team_id THEN NULL ELSE winner_id END
     WHERE team_a_id = v_team_id
        OR team_b_id = v_team_id
        OR winner_id = v_team_id;
@@ -624,6 +630,7 @@ DECLARE
     v_team_a_id INTEGER;
     v_team_b_id INTEGER;
     v_winner_id INTEGER;
+    v_match_status VARCHAR(50);
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM users WHERE id = p_actor_id AND role = 'admin'
@@ -632,8 +639,8 @@ BEGIN
             USING ERRCODE = '42501';
     END IF;
 
-    SELECT matches.team_a_id, matches.team_b_id
-    INTO v_team_a_id, v_team_b_id
+    SELECT matches.team_a_id, matches.team_b_id, matches.status
+    INTO v_team_a_id, v_team_b_id, v_match_status
     FROM matches
     WHERE matches.id = p_match_id
     FOR UPDATE;
@@ -641,6 +648,12 @@ BEGIN
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Pertandingan tidak ditemukan'
             USING ERRCODE = 'P0002';
+    END IF;
+
+    -- Guard: cegah perubahan hasil pertandingan yang sudah final.
+    IF v_match_status = 'completed' THEN
+        RAISE EXCEPTION 'Pertandingan ini sudah selesai dan hasilnya tidak dapat diubah'
+            USING ERRCODE = '22023';
     END IF;
 
     v_winner_id := fn_team_id_by_name(p_winner_team_name);

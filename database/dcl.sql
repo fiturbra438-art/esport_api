@@ -28,28 +28,30 @@ $$;
 -- ----------------------------------------------------------------------------
 -- 1. Hak Akses Role Aplikasi (esport_app)
 -- Digunakan oleh backend API (Axum) untuk runtime database connection pool.
--- Memerlukan hak baca/tulis tabel, sequence, dan eksekusi rutin.
+-- Prinsip Zero-Trust: esport_app hanya boleh membaca tabel/view secara langsung
+-- dan mengeksekusi routines. Seluruh mutasi data (INSERT/UPDATE/DELETE) WAJIB
+-- melalui Stored Procedure, bukan query langsung ke tabel fisik.
 -- ----------------------------------------------------------------------------
 GRANT CONNECT ON DATABASE "TOURNAMEN_ESPORT" TO esport_app;
 GRANT USAGE ON SCHEMA public TO esport_app;
 
-GRANT SELECT, INSERT, UPDATE, DELETE
-ON ALL TABLES IN SCHEMA public
-TO esport_app;
+-- Hak baca langsung pada tabel & view (untuk VIEW queries dari backend)
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO esport_app;
 
-GRANT USAGE, SELECT, UPDATE
+GRANT USAGE, SELECT
 ON ALL SEQUENCES IN SCHEMA public
 TO esport_app;
 
+-- Hak eksekusi seluruh prosedur & fungsi
 GRANT EXECUTE
 ON ALL ROUTINES IN SCHEMA public
 TO esport_app;
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO esport_app;
+GRANT SELECT ON TABLES TO esport_app;
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
-GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO esport_app;
+GRANT USAGE, SELECT ON SEQUENCES TO esport_app;
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
 GRANT EXECUTE ON ROUTINES TO esport_app;

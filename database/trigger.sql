@@ -98,3 +98,32 @@ AFTER DELETE
 ON tournament_registrations
 FOR EACH ROW
 EXECUTE FUNCTION fn_update_tournament_slots_on_delete();
+
+-- Sinkronisasi slot jika tournament_id pada registrasi dipindah (UPDATE).
+-- Kembalikan slot ke turnamen lama, kurangi slot dari turnamen baru.
+CREATE OR REPLACE FUNCTION fn_update_tournament_slots_on_update()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF OLD.tournament_id <> NEW.tournament_id THEN
+        -- Kembalikan 1 slot ke turnamen lama.
+        UPDATE tournaments
+        SET available_slots = LEAST(available_slots + 1, total_slots)
+        WHERE id = OLD.tournament_id;
+
+        -- Kurangi 1 slot dari turnamen baru.
+        UPDATE tournaments
+        SET available_slots = available_slots - 1
+        WHERE id = NEW.tournament_id AND total_slots > 0;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_update_tournament_slots_on_update
+AFTER UPDATE OF tournament_id
+ON tournament_registrations
+FOR EACH ROW
+EXECUTE FUNCTION fn_update_tournament_slots_on_update();
