@@ -1,5 +1,6 @@
 -- ============================================================================
 -- DCL (Data Control Language) - Hak Akses Role Database TOURNAMEN_ESPORT
+-- Model: Hierarki Role Berjenjang (Role Inheritance) & Least Privilege
 -- Jalankan file ini sebagai pemilik database (user postgres).
 -- ============================================================================
 
@@ -12,17 +13,22 @@ BEGIN
         CREATE ROLE esport_app LOGIN PASSWORD 'esport_app_password';
     END IF;
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'admin') THEN
-        CREATE ROLE admin LOGIN PASSWORD 'admin_password';
+        CREATE ROLE admin LOGIN PASSWORD 'admin_password' INHERIT;
+    ELSE
+        ALTER ROLE admin INHERIT;
     END IF;
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'user') THEN
-        EXECUTE format('CREATE ROLE %I LOGIN PASSWORD %L', 'user', 'user_password');
+        EXECUTE format('CREATE ROLE %I LOGIN PASSWORD %L INHERIT', 'user', 'user_password');
+    ELSE
+        ALTER ROLE "user" INHERIT;
     END IF;
 END
 $$;
 
 -- ----------------------------------------------------------------------------
 -- 1. Hak Akses Role Aplikasi (esport_app)
--- Digunakan oleh backend API (Axum) untuk runtime database connection.
+-- Digunakan oleh backend API (Axum) untuk runtime database connection pool.
+-- Memerlukan hak baca/tulis tabel, sequence, dan eksekusi rutin.
 -- ----------------------------------------------------------------------------
 GRANT CONNECT ON DATABASE "TOURNAMEN_ESPORT" TO esport_app;
 GRANT USAGE ON SCHEMA public TO esport_app;
@@ -49,28 +55,20 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 GRANT EXECUTE ON ROUTINES TO esport_app;
 
 -- ----------------------------------------------------------------------------
--- 2. Hak Akses Role Administrator (admin)
--- Hanya diberikan hak eksekusi (GRANT EXECUTE) untuk seluruh prosedur dan fungsi.
--- Tidak diberikan akses langsung (SELECT/INSERT/UPDATE/DELETE) pada tabel.
--- ----------------------------------------------------------------------------
-GRANT CONNECT ON DATABASE "TOURNAMEN_ESPORT" TO admin;
-GRANT USAGE ON SCHEMA public TO admin;
-
--- Hak eksekusi seluruh rutin (prosedur & fungsi) di skema public
-GRANT EXECUTE ON ALL ROUTINES IN SCHEMA public TO admin;
-
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-GRANT EXECUTE ON ROUTINES TO admin;
-
--- ----------------------------------------------------------------------------
--- 3. Hak Akses Role Pengguna Biasa ("user")
--- Hanya diberikan hak eksekusi (GRANT EXECUTE) pada prosedur dan fungsi
--- operasional pemain (registrasi, manajemen tim, profil, dan pendaftaran turnamen).
--- Tidak memiliki hak eksekusi pada prosedur admin (turnamen & jadwal/hasil match),
--- serta tidak memiliki akses langsung pada tabel.
+-- 2. Hak Akses Role Pengguna Biasa ("user") - Tingkat Dasar
+-- Pengguna biasa dapat membaca VIEW publik dan mengeksekusi prosedur operasional
+-- pemain (registrasi, manajemen tim, profil, pendaftaran turnamen).
+-- Tidak memiliki akses langsung ke tabel fisik.
 -- ----------------------------------------------------------------------------
 GRANT CONNECT ON DATABASE "TOURNAMEN_ESPORT" TO "user";
 GRANT USAGE ON SCHEMA public TO "user";
+
+-- Hak Baca View (Read-Only)
+GRANT SELECT ON vw_tournaments TO "user";
+GRANT SELECT ON vw_team_members TO "user";
+GRANT SELECT ON vw_teams TO "user";
+GRANT SELECT ON vw_tournament_teams TO "user";
+GRANT SELECT ON vw_match_schedule TO "user";
 
 -- Prosedur Akun & Pengguna
 GRANT EXECUTE ON PROCEDURE pr_register_user TO "user";
@@ -91,7 +89,7 @@ GRANT EXECUTE ON PROCEDURE pr_get_user_id_by_username TO "user";
 GRANT EXECUTE ON PROCEDURE pr_get_team_id_by_name TO "user";
 GRANT EXECUTE ON PROCEDURE pr_get_tournament_id_by_name TO "user";
 
--- Fungsi Pendukung / Lookup yang dipanggil prosedur di atas
+-- Fungsi Pendukung yang dipanggil prosedur pemain
 GRANT EXECUTE ON FUNCTION fn_user_id_by_username TO "user";
 GRANT EXECUTE ON FUNCTION fn_team_id_by_name TO "user";
 GRANT EXECUTE ON FUNCTION fn_tournament_id_by_name TO "user";
@@ -101,3 +99,30 @@ GRANT EXECUTE ON FUNCTION fn_add_team_member TO "user";
 GRANT EXECUTE ON FUNCTION fn_remove_team_member TO "user";
 GRANT EXECUTE ON FUNCTION fn_transfer_captain TO "user";
 GRANT EXECUTE ON FUNCTION fn_register_team_to_tournament TO "user";
+
+-- ----------------------------------------------------------------------------
+-- 3. Hak Akses Role Administrator (admin) - Tingkat Lanjutan
+-- Menerapkan hierarki (Role Inheritance):
+-- Role "admin" mewarisi role "user", sehingga otomatis memperoleh seluruh hak
+-- baca VIEW dan prosedur operasional pemain tanpa perlu didefinisikan ulang.
+-- Ditambahkan hak eksekusi prosedur & fungsi khusus manajemen turnamen & match.
+-- ----------------------------------------------------------------------------
+GRANT CONNECT ON DATABASE "TOURNAMEN_ESPORT" TO admin;
+GRANT USAGE ON SCHEMA public TO admin;
+
+-- Pewarisan Role: admin mewarisi seluruh hak akses "user"
+GRANT "user" TO admin;
+
+-- Prosedur Khusus Administrator (Manajemen Turnamen & Pertandingan)
+GRANT EXECUTE ON PROCEDURE pr_create_tournament TO admin;
+GRANT EXECUTE ON PROCEDURE pr_delete_tournament TO admin;
+GRANT EXECUTE ON PROCEDURE pr_create_match TO admin;
+GRANT EXECUTE ON PROCEDURE pr_update_match_schedule TO admin;
+GRANT EXECUTE ON PROCEDURE pr_get_match_id_by_tournament_and_team TO admin;
+GRANT EXECUTE ON PROCEDURE pr_set_match_result TO admin;
+
+-- Fungsi Pendukung Khusus Administrator
+GRANT EXECUTE ON FUNCTION fn_create_tournament TO admin;
+GRANT EXECUTE ON FUNCTION fn_delete_tournament TO admin;
+GRANT EXECUTE ON FUNCTION fn_create_match TO admin;
+GRANT EXECUTE ON FUNCTION fn_update_match_schedule TO admin;
