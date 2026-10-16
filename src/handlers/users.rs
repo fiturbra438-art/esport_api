@@ -157,19 +157,22 @@ pub async fn login(
     }
 
     let account = match sqlx::query_as::<_, (i32, String, Option<String>, String)>(
-        "SELECT id, username, password, role FROM users WHERE username = $1",
+        "CALL pr_login($1, NULL, NULL, NULL, NULL)",
     )
     .bind(&payload.username)
-    .fetch_optional(&pool)
+    .fetch_one(&pool)
     .await
     {
-        Ok(Some(account)) => account,
-        Ok(None) => {
-            return error_response(StatusCode::UNAUTHORIZED, "Username atau password salah");
-        }
+        Ok(account) => account,
         Err(error) => {
-            log_error("login_lookup", error);
-            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "Gagal memproses login");
+            let not_found = error
+                .as_database_error()
+                .and_then(|e| e.code())
+                .is_some_and(|code| code == "P0002");
+            if !not_found {
+                log_error("login_lookup", error);
+            }
+            return error_response(StatusCode::UNAUTHORIZED, "Username atau password salah");
         }
     };
 
@@ -411,15 +414,14 @@ pub async fn get_user_profile(
     if user_id <= 0 {
         return error_response(StatusCode::BAD_REQUEST, "ID player harus positif");
     }
-    match sqlx::query_as!(
-        UserProfileResponse,
-        "SELECT id, username, mmr_point FROM users WHERE id = $1",
-        user_id
+    match sqlx::query_as::<_, UserProfileResponse>(
+        "CALL pr_get_user_profile($1, NULL, NULL, NULL)",
     )
-    .fetch_optional(&pool)
+    .bind(user_id)
+    .fetch_one(&pool)
     .await
     {
-        Ok(Some(user)) => (
+        Ok(user) => (
             StatusCode::OK,
             Json(serde_json::json!({
                 "message": "Berhasil mengambil profil player",
@@ -427,17 +429,19 @@ pub async fn get_user_profile(
             })),
         )
             .into_response(),
-        Ok(None) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "Player tidak ditemukan"})),
-        )
-            .into_response(),
         Err(error) => {
-            log_error("get_user_profile", error);
-            error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Gagal mengambil profil player",
-            )
+            let not_found = error
+                .as_database_error()
+                .and_then(|e| e.code())
+                .is_some_and(|code| code == "P0002");
+            if !not_found {
+                log_error("get_user_profile", error);
+            }
+            if not_found {
+                error_response(StatusCode::NOT_FOUND, "Player tidak ditemukan")
+            } else {
+                error_response(StatusCode::INTERNAL_SERVER_ERROR, "Gagal mengambil profil player")
+            }
         }
     }
 }
@@ -450,6 +454,7 @@ pub async fn get_user_profile_by_username(
         return error_response(StatusCode::BAD_REQUEST, error);
     }
 
+    // Resolve username -> id dulu, kemudian panggil pr_get_user_profile.
     match sqlx::query_as::<_, (i32,)>("CALL pr_get_user_id_by_username($1, NULL)")
         .bind(&username)
         .fetch_one(&pool)
@@ -463,7 +468,9 @@ pub async fn get_user_profile_by_username(
                 .as_database_error()
                 .and_then(|database_error| database_error.code())
                 .is_some_and(|code| code == "P0001");
-            log_error("get_user_id_by_username", error);
+            if !not_found {
+                log_error("get_user_id_by_username", error);
+            }
             if not_found {
                 error_response(StatusCode::NOT_FOUND, "Player tidak ditemukan")
             } else {

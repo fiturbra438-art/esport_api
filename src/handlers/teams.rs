@@ -6,6 +6,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use sqlx::Row;
 
 use crate::auth::Claims;
 
@@ -26,25 +27,54 @@ pub struct TeamSummary {
 }
 
 pub async fn get_teams(State(pool): State<PgPool>) -> impl IntoResponse {
-    match sqlx::query_as::<_, TeamSummary>(
-        "SELECT id, name, captain_id, captain_username, member_count FROM vw_teams ORDER BY name, id",
-    )
-    .fetch_all(&pool)
-    .await
-    {
-        Ok(teams) => (
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "message": "Berhasil mengambil daftar tim",
-                "data": teams
-            })),
-        )
-            .into_response(),
+    let mut tx = match pool.begin().await {
+        Ok(tx) => tx,
         Err(error) => {
-            log_error("get_teams", error);
-            error_response(StatusCode::INTERNAL_SERVER_ERROR, "Gagal mengambil daftar tim")
+            log_error("get_teams_begin", error);
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "Gagal mengambil daftar tim");
         }
+    };
+
+    if let Err(error) = sqlx::query("CALL pr_get_teams('teams_cursor')")
+        .execute(&mut *tx)
+        .await
+    {
+        log_error("get_teams_call", error);
+        return error_response(StatusCode::INTERNAL_SERVER_ERROR, "Gagal mengambil daftar tim");
     }
+
+    let rows = match sqlx::query("FETCH ALL FROM teams_cursor")
+        .fetch_all(&mut *tx)
+        .await
+    {
+        Ok(rows) => rows,
+        Err(error) => {
+            log_error("get_teams_fetch", error);
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "Gagal mengambil daftar tim");
+        }
+    };
+
+    let _ = tx.commit().await;
+
+    let teams: Vec<TeamSummary> = rows
+        .into_iter()
+        .map(|row| TeamSummary {
+            id: row.get("id"),
+            name: row.get("name"),
+            captain_id: row.get("captain_id"),
+            captain_username: row.get("captain_username"),
+            member_count: row.get("member_count"),
+        })
+        .collect();
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "message": "Berhasil mengambil daftar tim",
+            "data": teams
+        })),
+    )
+        .into_response()
 }
 
 #[derive(Deserialize)]
@@ -309,41 +339,85 @@ pub async fn get_team_profile(
     if team_id <= 0 {
         return error_response(StatusCode::BAD_REQUEST, "ID tim harus positif");
     }
-    let team = match sqlx::query!(
-        "SELECT team_id AS \"id!\", team_name AS \"name!\", captain_id FROM vw_team_members WHERE team_id = $1 LIMIT 1",
-        team_id
-    )
-    .fetch_optional(&pool)
-    .await
-    {
-        Ok(Some(team)) => team,
-        Ok(None) => return error_response(StatusCode::NOT_FOUND, "Tim tidak ditemukan"),
+
+    let mut tx = match pool.begin().await {
+        Ok(tx) => tx,
         Err(error) => {
-            log_error("get_team_profile", error);
+            log_error("get_team_profile_begin", error);
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "Gagal mengambil profil tim");
         }
     };
 
-    let members = match sqlx::query_as!(
-        TeamMemberInfo,
-        "SELECT username AS \"username!\", status FROM vw_team_members WHERE team_id = $1 AND user_id IS NOT NULL",
-        team_id
+    if let Err(error) = sqlx::query(
+        "CALL pr_get_team_profile($1, 'team_cursor', 'member_cursor')",
     )
-    .fetch_all(&pool)
+    .bind(team_id)
+    .execute(&mut *tx)
     .await
     {
-        Ok(members) => members,
+        let not_found = error
+            .as_database_error()
+            .and_then(|e| e.code())
+            .is_some_and(|code| code == "P0002");
+        if !not_found {
+            log_error("get_team_profile_call", error);
+        }
+        let _ = tx.rollback().await;
+        return if not_found {
+            error_response(StatusCode::NOT_FOUND, "Tim tidak ditemukan")
+        } else {
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, "Gagal mengambil profil tim")
+        };
+    }
+
+    let team_row = match sqlx::query("FETCH ALL FROM team_cursor")
+        .fetch_optional(&mut *tx)
+        .await
+    {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            let _ = tx.rollback().await;
+            return error_response(StatusCode::NOT_FOUND, "Tim tidak ditemukan");
+        }
         Err(error) => {
-            log_error("get_team_members", error);
+            log_error("get_team_profile_fetch_team", error);
+            let _ = tx.rollback().await;
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "Gagal mengambil profil tim");
+        }
+    };
+
+    let member_rows = match sqlx::query("FETCH ALL FROM member_cursor")
+        .fetch_all(&mut *tx)
+        .await
+    {
+        Ok(rows) => rows,
+        Err(error) => {
+            log_error("get_team_profile_fetch_members", error);
+            let _ = tx.rollback().await;
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "Gagal mengambil anggota tim");
         }
     };
+
+    let _ = tx.commit().await;
+
+    let members: Vec<TeamMemberInfo> = member_rows
+        .into_iter()
+        .map(|row| TeamMemberInfo {
+            username: row.get("username"),
+            status: row.get("status"),
+        })
+        .collect();
 
     (
         StatusCode::OK,
         Json(serde_json::json!({
             "message": "Berhasil mengambil profil tim",
-            "data": TeamProfileResponse { id: team.id, name: team.name, captain_id: team.captain_id, members }
+            "data": TeamProfileResponse {
+                id: team_row.get("id"),
+                name: team_row.get("name"),
+                captain_id: team_row.get("captain_id"),
+                members
+            }
         })),
     )
         .into_response()

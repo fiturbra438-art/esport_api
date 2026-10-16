@@ -128,3 +128,19 @@ GRANT EXECUTE ON FUNCTION fn_create_tournament TO admin;
 GRANT EXECUTE ON FUNCTION fn_delete_tournament TO admin;
 GRANT EXECUTE ON FUNCTION fn_create_match TO admin;
 GRANT EXECUTE ON FUNCTION fn_update_match_schedule TO admin;
+
+-- ----------------------------------------------------------------------------
+-- 4. Hak Akses Procedure READ (baca data) — berlaku untuk semua role
+-- Procedure ini menggantikan query SELECT langsung dari backend.
+-- ----------------------------------------------------------------------------
+
+-- Procedure baca yang bisa diakses user biasa
+GRANT EXECUTE ON PROCEDURE pr_login(TEXT) TO "user";
+GRANT EXECUTE ON PROCEDURE pr_get_user_profile(INTEGER) TO "user";
+GRANT EXECUTE ON PROCEDURE pr_get_teams(REFCURSOR) TO "user";
+GRANT EXECUTE ON PROCEDURE pr_get_team_profile(INTEGER, REFCURSOR, REFCURSOR) TO "user";
+GRANT EXECUTE ON PROCEDURE pr_get_tournaments(REFCURSOR) TO "user";
+GRANT EXECUTE ON PROCEDURE pr_get_tournament_teams(INTEGER, REFCURSOR) TO "user";
+GRANT EXECUTE ON PROCEDURE pr_get_tournament_matches(INTEGER, REFCURSOR) TO "user";
+
+-- admin mewarisi semua hak "user" di atas melalui: GRANT "user" TO admin;

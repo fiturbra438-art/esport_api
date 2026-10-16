@@ -6,6 +6,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use sqlx::Row;
 
 use crate::auth::Claims;
 
@@ -95,21 +96,50 @@ pub async fn create_tournament(
 }
 
 pub async fn get_tournaments(State(pool): State<PgPool>) -> impl IntoResponse {
-    match sqlx::query_as::<_, TournamentResponse>(
-        "SELECT id, name, status, total_slots, available_slots FROM vw_tournaments",
-    )
-        .fetch_all(&pool)
+    let mut tx = match pool.begin().await {
+        Ok(tx) => tx,
+        Err(error) => {
+            log_error("get_tournaments_begin", error);
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "Gagal mengambil data turnamen");
+        }
+    };
+
+    if let Err(error) = sqlx::query("CALL pr_get_tournaments('tournaments_cursor')")
+        .execute(&mut *tx)
         .await
     {
-        Ok(tournaments) => (
-            StatusCode::OK,
-            Json(serde_json::json!({"message": "Berhasil mengambil daftar turnamen", "data": tournaments})),
-        ).into_response(),
-        Err(error) => {
-            log_error("get_tournaments", error);
-            error_response(StatusCode::INTERNAL_SERVER_ERROR, "Gagal mengambil data turnamen")
-        }
+        log_error("get_tournaments_call", error);
+        return error_response(StatusCode::INTERNAL_SERVER_ERROR, "Gagal mengambil data turnamen");
     }
+
+    let rows = match sqlx::query("FETCH ALL FROM tournaments_cursor")
+        .fetch_all(&mut *tx)
+        .await
+    {
+        Ok(rows) => rows,
+        Err(error) => {
+            log_error("get_tournaments_fetch", error);
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "Gagal mengambil data turnamen");
+        }
+    };
+
+    let _ = tx.commit().await;
+
+    let tournaments: Vec<TournamentResponse> = rows
+        .into_iter()
+        .map(|row| TournamentResponse {
+            id: row.get("id"),
+            name: row.get("name"),
+            status: row.get("status"),
+            total_slots: row.get("total_slots"),
+            available_slots: row.get("available_slots"),
+        })
+        .collect();
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({"message": "Berhasil mengambil daftar turnamen", "data": tournaments})),
+    ).into_response()
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -129,49 +159,69 @@ pub async fn get_tournament_teams(
         return error_response(StatusCode::BAD_REQUEST, "ID turnamen harus positif");
     }
 
-    let exists = match sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM tournaments WHERE id = $1)",
-    )
-    .bind(tournament_id)
-    .fetch_one(&pool)
-    .await
-    {
-        Ok(exists) => exists,
+    let mut tx = match pool.begin().await {
+        Ok(tx) => tx,
         Err(error) => {
-            log_error("get_tournament_teams_exists", error);
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Gagal memeriksa turnamen",
-            );
+            log_error("get_tournament_teams_begin", error);
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "Gagal mengambil daftar tim turnamen");
         }
     };
-    if !exists {
-        return error_response(StatusCode::NOT_FOUND, "Turnamen tidak ditemukan");
-    }
 
-    match sqlx::query_as::<_, TournamentTeamResponse>(
-        "SELECT team_id, team_name, captain_id, captain_username, registered_at::TEXT AS registered_at FROM vw_tournament_teams WHERE tournament_id = $1 ORDER BY registered_at, team_id",
+    if let Err(error) = sqlx::query(
+        "CALL pr_get_tournament_teams($1, 'tournament_teams_cursor')",
     )
     .bind(tournament_id)
-    .fetch_all(&pool)
+    .execute(&mut *tx)
     .await
     {
-        Ok(teams) => (
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "message": "Berhasil mengambil daftar tim turnamen",
-                "data": teams
-            })),
-        )
-            .into_response(),
-        Err(error) => {
-            log_error("get_tournament_teams", error);
-            error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Gagal mengambil daftar tim turnamen",
-            )
+        let not_found = error
+            .as_database_error()
+            .and_then(|e| e.code())
+            .is_some_and(|code| code == "P0002");
+        if !not_found {
+            log_error("get_tournament_teams_call", error);
         }
+        let _ = tx.rollback().await;
+        return if not_found {
+            error_response(StatusCode::NOT_FOUND, "Turnamen tidak ditemukan")
+        } else {
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, "Gagal mengambil daftar tim turnamen")
+        };
     }
+
+    let rows = match sqlx::query("FETCH ALL FROM tournament_teams_cursor")
+        .fetch_all(&mut *tx)
+        .await
+    {
+        Ok(rows) => rows,
+        Err(error) => {
+            log_error("get_tournament_teams_fetch", error);
+            let _ = tx.rollback().await;
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "Gagal mengambil daftar tim turnamen");
+        }
+    };
+
+    let _ = tx.commit().await;
+
+    let teams: Vec<TournamentTeamResponse> = rows
+        .into_iter()
+        .map(|row| TournamentTeamResponse {
+            team_id: row.get("team_id"),
+            team_name: row.get("team_name"),
+            captain_id: row.get("captain_id"),
+            captain_username: row.get("captain_username"),
+            registered_at: row.get("registered_at"),
+        })
+        .collect();
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "message": "Berhasil mengambil daftar tim turnamen",
+            "data": teams
+        })),
+    )
+        .into_response()
 }
 
 pub async fn get_tournament_teams_by_name(

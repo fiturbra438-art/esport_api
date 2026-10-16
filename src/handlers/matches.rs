@@ -6,6 +6,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use sqlx::Row;
 use time::PrimitiveDateTime;
 
 use crate::auth::Claims;
@@ -102,23 +103,58 @@ pub async fn get_tournament_matches(
     if tournament_id <= 0 {
         return error_response(StatusCode::BAD_REQUEST, "ID turnamen harus positif");
     }
-    match sqlx::query_as!(
-        MatchResponse,
-        "SELECT id AS \"id!\", round_number, team1_name, team2_name, schedule_time::TEXT AS schedule_time, status, winner_name FROM vw_match_schedule WHERE tournament_id = $1 ORDER BY round_number ASC, id ASC",
-        tournament_id
+
+    let mut tx = match pool.begin().await {
+        Ok(tx) => tx,
+        Err(error) => {
+            log_error("get_tournament_matches_begin", error);
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "Gagal mengambil jadwal pertandingan");
+        }
+    };
+
+    if let Err(error) = sqlx::query(
+        "CALL pr_get_tournament_matches($1, 'matches_cursor')",
     )
-    .fetch_all(&pool)
+    .bind(tournament_id)
+    .execute(&mut *tx)
     .await
     {
-        Ok(matches) => (
-            StatusCode::OK,
-            Json(serde_json::json!({"message": "Berhasil mengambil jadwal pertandingan", "data": matches})),
-        ).into_response(),
-        Err(error) => {
-            log_error("get_tournament_matches", error);
-            error_response(StatusCode::INTERNAL_SERVER_ERROR, "Gagal mengambil jadwal pertandingan")
-        }
+        log_error("get_tournament_matches_call", error);
+        let _ = tx.rollback().await;
+        return error_response(StatusCode::INTERNAL_SERVER_ERROR, "Gagal mengambil jadwal pertandingan");
     }
+
+    let rows = match sqlx::query("FETCH ALL FROM matches_cursor")
+        .fetch_all(&mut *tx)
+        .await
+    {
+        Ok(rows) => rows,
+        Err(error) => {
+            log_error("get_tournament_matches_fetch", error);
+            let _ = tx.rollback().await;
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "Gagal mengambil jadwal pertandingan");
+        }
+    };
+
+    let _ = tx.commit().await;
+
+    let matches: Vec<MatchResponse> = rows
+        .into_iter()
+        .map(|row| MatchResponse {
+            id: row.get("id"),
+            round_number: row.get("round_number"),
+            team1_name: row.get("team1_name"),
+            team2_name: row.get("team2_name"),
+            schedule_time: row.get("schedule_time"),
+            status: row.get("status"),
+            winner_name: row.get("winner_name"),
+        })
+        .collect();
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({"message": "Berhasil mengambil jadwal pertandingan", "data": matches})),
+    ).into_response()
 }
 
 pub async fn get_tournament_matches_by_name(
